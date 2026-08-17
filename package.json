@@ -1,0 +1,23 @@
+{
+  "name": "wm-app-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test server/api.test.ts server/auth.test.ts server/campaign-seed.test.ts server/dealer-event-status.test.ts server/campaigns.test.ts server/dealer-events.test.ts server/dealer-history.test.ts server/dealer-ranking.test.ts server/domain.test.ts server/event-ledger-migration.test.ts server/reset.test.ts server/seed-batches.test.ts",
+    "db:seed": "tsx server/seed.ts",
+    "db:auth": "tsx server/auth-migrate.ts",
+    "reset": "tsx server/reset.ts",
+    "auth:issue-reset": "tsx server/issue-reset-code.ts"
+  },
+  "dependencies": {
+    "mssql": "^12.6.0",
+    "tsx": "^4.22.4"
+  },
+  "devDependencies": {
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^26.0.0",
+    "typescript": "~6.0.3"
+  }
+}
