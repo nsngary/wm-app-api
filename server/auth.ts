@@ -438,6 +438,126 @@ export async function changePassword(
   return { user, tokens: await createSession(user) };
 }
 
+/** 永久刪除 TeamUp App 帳號與該帳號在 TeamUp 內的資料。 */
+export async function deleteAccount(
+  principal: AuthPrincipal,
+  currentPassword: string,
+): Promise<void> {
+  const account = await loadAuthAccount(principal.subjectId);
+
+  if (
+    !account ||
+    account.role !== principal.role ||
+    !(await verifyPassword(currentPassword, account.password))
+  ) {
+    throw authFailure(401, INVALID_LOGIN_MESSAGE);
+  }
+
+  const deletionId = randomBytes(16).toString("hex");
+  const pool = await getPool("teamup");
+
+  await pool
+    .request()
+    .input("role", sql.NVarChar(10), principal.role)
+    .input("subjectId", sql.VarChar(50), principal.subjectId)
+    .input("deletionId", sql.VarChar(32), deletionId)
+    .query(`
+      SET XACT_ABORT ON;
+
+      BEGIN TRY
+        BEGIN TRAN;
+
+        /*
+         * 其他會員的共同活動仍需保留，但不可繼續識別已刪除會員。
+         */
+        UPDATE dbo.Attendance
+        SET participantExternalID = NULL
+        WHERE participantExternalID = @subjectId
+          AND CustomerID <> @subjectId;
+
+        /*
+         * 推薦人因已刪除會員獲得的點數紀錄屬於推薦人，
+         * 保留紀錄，但將 sourceID 改成不可回推的 tombstone。
+         * 加入 ledgerID 避免唯一索引衝突。
+         */
+        UPDATE dbo.ExpPointLedger
+        SET sourceID = CONCAT(
+          N'deleted:',
+          @deletionId,
+          N':',
+          CONVERT(NVARCHAR(20), ledgerID)
+        )
+        WHERE CustomerID <> @subjectId
+          AND sourceType = N'companion_direct_newcomer'
+          AND RIGHT(sourceID, LEN(@subjectId) + 1) =
+            CONCAT(N':', @subjectId);
+
+        /*
+         * 其他會員因已刪除會員加入而取得的獎勵仍屬於其他會員。
+         */
+        UPDATE dbo.CustomerReward
+        SET sourceID = CONCAT(
+          N'deleted:',
+          @deletionId,
+          N':',
+          CONVERT(NVARCHAR(20), customerRewardID)
+        )
+        WHERE CustomerID <> @subjectId
+          AND sourceType = N'wm_member_join'
+          AND sourceID = @subjectId;
+
+        /*
+         * 刪除該會員所有 TeamUp App 業務資料。
+         */
+        DELETE FROM dbo.CustomerReward
+        WHERE CustomerID = @subjectId;
+
+        DELETE FROM dbo.ExpPointLedger
+        WHERE CustomerID = @subjectId;
+
+        DELETE FROM dbo.CustomerProgress
+        WHERE CustomerID = @subjectId;
+
+        DELETE FROM dbo.Attendance
+        WHERE CustomerID = @subjectId;
+
+        /*
+         * 依 Foreign Key 順序刪除認證資料。
+         */
+        DELETE refreshToken
+        FROM dbo.AuthRefreshToken refreshToken
+        JOIN dbo.AuthSession session
+          ON session.sessionID = refreshToken.sessionID
+        WHERE session.role = @role
+          AND session.subjectID = @subjectId;
+
+        DELETE FROM dbo.AuthSession
+        WHERE role = @role
+          AND subjectID = @subjectId;
+
+        DELETE FROM dbo.AuthActivation
+        WHERE role = @role
+          AND subjectID = @subjectId;
+
+        DELETE FROM dbo.AuthLoginThrottle
+        WHERE subjectID = @subjectId;
+
+        DELETE FROM dbo.AuthAccount
+        WHERE role = @role
+          AND subjectID = @subjectId;
+
+        IF @@ROWCOUNT <> 1
+          THROW 54000, 'Account deletion failed', 1;
+
+        COMMIT;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        THROW;
+      END CATCH;
+    `);
+}
+
 /** 內部人員核發一次性重設碼；原始碼只在 CLI 當下顯示一次。 */
 export async function issueResetCode(accountId: string) {
   const identity = await resolveWmIdentity(accountId.trim().toUpperCase());

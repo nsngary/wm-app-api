@@ -29,9 +29,9 @@ async function main() {
         "AuthLoginThrottle",
     ]) {
         assert.match(
-        authSql,
-        new RegExp(`CREATE TABLE dbo\\.${table}`, "i"),
-        `缺少 dbo.${table}`,
+            authSql,
+            new RegExp(`CREATE TABLE dbo\\.${table}`, "i"),
+            `缺少 dbo.${table}`,
         );
     }
 
@@ -55,14 +55,15 @@ async function main() {
 
     // Session API 必須具備登入、輪替、撤銷與 Principal 驗證邊界。
     for (const contract of [
-      "createSession",
-      "refreshSession",
-      "authenticateAccessToken",
-      "logoutSession",
-      "changePassword",
-      "resetPassword",
+        "createSession",
+        "refreshSession",
+        "authenticateAccessToken",
+        "logoutSession",
+        "changePassword",
+        "deleteAccount",
+        "resetPassword",
     ]) {
-      assert.match(authSource, new RegExp(`export async function ${contract}`));
+        assert.match(authSource, new RegExp(`export async function ${contract}`));
     }
 
     assert.equal(ACCESS_TOKEN_TTL_MS, 15 * 60 * 1000);
@@ -116,6 +117,51 @@ async function main() {
     assert.equal(await verifyPassword("x".repeat(1025), first), false);
 
     const tokens = new Set<string>();
+
+    const deleteAccountSource = authSource.slice(
+        authSource.indexOf("export async function deleteAccount"),
+        authSource.indexOf(
+            "/** 內部人員核發一次性重設碼",
+        ),
+    );
+
+    assert.match(
+        deleteAccountSource,
+        /verifyPassword\(currentPassword,\s*account\.password\)/,
+    );
+
+    for (const table of [
+        "CustomerReward",
+        "ExpPointLedger",
+        "CustomerProgress",
+        "Attendance",
+        "AuthRefreshToken",
+        "AuthSession",
+        "AuthActivation",
+        "AuthLoginThrottle",
+        "AuthAccount",
+    ]) {
+        assert.match(
+            deleteAccountSource,
+            new RegExp(`DELETE[\\s\\S]*dbo\\.${table}`),
+            `刪除帳號流程缺少 dbo.${table}`,
+        );
+    }
+
+    assert.match(
+        deleteAccountSource,
+        /participantExternalID = NULL/,
+    );
+
+    assert.match(
+        deleteAccountSource,
+        /sourceID = CONCAT\([\s\S]*N'deleted:'[\s\S]*@deletionId/,
+    );
+
+    assert.doesNotMatch(
+        deleteAccountSource,
+        /status\s*=\s*N'disabled'/,
+    );
 
     // 驗證每個 Token 至少包含 32 Bytes（256 Bits）隨機資料，
     // 並確認重複產生時沒有出現相同 Token。

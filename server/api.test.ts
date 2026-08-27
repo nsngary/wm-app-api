@@ -125,6 +125,36 @@ assert.equal(
   4,
   "Event, companion attendance, attendance, and ledger queries must share stable Campaign ownership.",
 );
+
+const deleteAccountRoute = apiSource.match(
+  /if \(req\.method === "DELETE" && path === "\/api\/auth\/account"\) \{([\s\S]*?)\n    \}/,
+)?.[1];
+
+assert.ok(
+  deleteAccountRoute,
+  "DELETE /api/auth/account must exist",
+);
+
+assert.match(
+  deleteAccountRoute,
+  /requestPrincipal\(req\)/,
+);
+
+assert.match(
+  deleteAccountRoute,
+  /requireRole\(principal, "dealer"\)/,
+);
+
+assert.match(
+  deleteAccountRoute,
+  /mustString\(input\.currentPassword\)/,
+);
+
+assert.match(
+  deleteAccountRoute,
+  /deleteAccount\(\s*principal,/,
+);
+
 const createEventSource = apiSource.slice(
   apiSource.indexOf("async function createEventSession"),
   apiSource.indexOf("async function staffQr"),

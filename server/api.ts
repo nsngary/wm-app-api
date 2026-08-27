@@ -6,6 +6,7 @@ import {
   authenticatePassword,
   changePassword,
   createSession,
+  deleteAccount,
   getSessionUser,
   logoutSession,
   refreshSession,
@@ -107,6 +108,18 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
           mustString(input.newPassword),
         ),
       );
+    }
+    if (req.method === "DELETE" && path === "/api/auth/account") {
+      const principal = await requestPrincipal(req);
+      requireRole(principal, "dealer");
+
+      const input = await body(req);
+      await deleteAccount(
+        principal,
+        mustString(input.currentPassword),
+      );
+
+      return send(res, 200, { ok: true });
     }
 
     // 從這裡開始都是受保護的應用程式資料與操作。
