@@ -22,26 +22,6 @@ IF NOT EXISTS (
   ON dbo.Campaign(isOpen)
   WHERE isOpen = 1;
 
-SET XACT_ABORT ON;
-BEGIN TRAN;
-
-DECLARE @defaultStartsOn DATE = '2026-07-01';
-DECLARE @defaultEndsOn DATE = '2026-09-30';
-
-IF NOT EXISTS (
-  SELECT 1
-  FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
-  WHERE startsOn <= @defaultEndsOn
-    AND endsOn >= @defaultStartsOn
-)
-BEGIN
-  INSERT dbo.Campaign (name, startsOn, endsOn, isOpen)
-  SELECT N'2026 Q3', @defaultStartsOn, @defaultEndsOn,
-    CASE WHEN EXISTS (SELECT 1 FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK) WHERE isOpen = 1) THEN 0 ELSE 1 END;
-END;
-
-COMMIT;
-
 IF OBJECT_ID(N'dbo.Activity', N'U') IS NULL
   CREATE TABLE dbo.Activity (
     eventType NVARCHAR(50) NOT NULL CONSTRAINT PK_Activity PRIMARY KEY,
@@ -394,32 +374,6 @@ IF EXISTS (
 ELSE
   INSERT dbo.ExpPointRule (eventType, participantType, ruleName, expAmount, pointAmount)
   VALUES (N'direct_newcomer_companion', N'dealer', N'同場三個月內直推新人', 5, 5);
-
-DECLARE @events TABLE (
-  eventType NVARCHAR(50),
-  eventName NVARCHAR(200),
-  startAt DATETIMEOFFSET(0),
-  endAt DATETIMEOFFSET(0),
-  location NVARCHAR(200),
-  description NVARCHAR(1000)
-);
-INSERT @events VALUES
-  (N'sha', N'SHA 一日訓', '2026-07-25T09:30:00+08:00', '2026-07-25T17:00:00+08:00', N'台中營業處 5F', N'現場訓練與分享演練'),
-  (N'product_basic', N'產品初階訓課', '2026-07-28T13:30:00+08:00', NULL, N'台中營業處 5F', N'產品基礎訓練'),
-  (N'elite', N'菁英研習營', '2026-08-03T09:00:00+08:00', NULL, N'研習會場', N'菁英營活動'),
-  (N'product_brief', N'產品說明會', '2026-08-08T14:00:00+08:00', NULL, N'營業處', N'產品說明與邀約'),
-  (N'business_brief', N'事業說明會', '2026-08-12T19:30:00+08:00', NULL, N'營業處', N'事業制度說明');
-
-INSERT dbo.[Event] (eventType, eventName, startAt, endAt, location, description)
-SELECT eventType, eventName, startAt, endAt, location, description
-FROM @events source
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM dbo.[Event] target
-  WHERE target.eventType = source.eventType
-    AND target.eventName = source.eventName
-    AND target.startAt = source.startAt
-);
 
 DECLARE @rewards TABLE (
   levelNo INT,

@@ -43,9 +43,6 @@ assert.match(apiSource, /SET XACT_ABORT ON;[\s\S]*BEGIN TRAN;[\s\S]*IF @isOpen =
 assert.match(seedSource, /CREATE TABLE dbo\.Campaign/);
 assert.match(seedSource, /CK_Campaign_DateRange CHECK \(endsOn >= startsOn\)/);
 assert.match(seedSource, /CREATE UNIQUE INDEX UX_Campaign_OneOpen\s+ON dbo\.Campaign\(isOpen\)\s+WHERE isOpen = 1;/);
-assert.match(seedSource, /N'2026 Q3'/);
-assert.match(seedSource, /'2026-07-01'/);
-assert.match(seedSource, /'2026-09-30'/);
 
 const dealerEventsRoute = apiSource.match(
   /if \(req\.method === "GET" && path === "\/api\/me\/events"\) \{([\s\S]*?)\n    \}/,
