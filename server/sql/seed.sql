@@ -52,6 +52,8 @@ IF OBJECT_ID(N'dbo.StaffFavoriteLocation', N'U') IS NULL
     createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_StaffFavoriteLocation_createdAt DEFAULT (SYSDATETIMEOFFSET())
   );
 
+  GO
+
 MERGE dbo.Activity AS target
 USING (VALUES
   (N'elite', N'菁英研習營', 20, 10, N'西湖渡假村', N'36742 苗栗縣三義鄉西湖村西湖11號'),
