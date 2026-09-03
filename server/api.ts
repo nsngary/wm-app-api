@@ -38,6 +38,7 @@ import {
   eventCheckInIsOpen,
   taipeiDateKey,
 } from "./dealer-event-status";
+import { staticMapUrl } from "./static-map";
 
 type Role = "dealer" | "staff";
 
@@ -68,6 +69,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const campaignPatch = path.match(/^\/api\/campaigns\/(\d+)$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
+    const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
 
     if (req.method === "POST" && path === "/api/auth/login") {
       const input = await body(req);
@@ -129,6 +131,21 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     //   throw new AuthHttpError(403, "請先更新密碼");
     // }
 
+    if (req.method === "GET" && path === "/api/me/favorite-locations") {
+      requireRole(principal, "staff");
+      return send(res, 200, { favoriteLocations: await favoriteLocations(principal.subjectId) });
+    }
+    if (req.method === "POST" && path === "/api/me/favorite-locations") {
+      requireRole(principal, "staff");
+      return send(res, 200, {
+        favoriteLocation: await createFavoriteLocation(principal.subjectId, await body(req)),
+      });
+    }
+    if (req.method === "DELETE" && favoriteLocationDelete) {
+      requireRole(principal, "staff");
+      await deleteFavoriteLocation(principal.subjectId, favoriteLocationDelete[1]);
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "GET" && path === "/api/activities") {
       return send(res, 200, { activities: await activities() });
     }
@@ -273,7 +290,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
 async function activities() {
   const pool = await getPool("teamup");
   const result = await pool.request().query(`
-    SELECT eventType, activityName, defaultPoint, isActive, sortOrder
+    SELECT eventType, activityName, defaultPoint, isActive, sortOrder, defaultLocation, defaultLocationAddress
     FROM dbo.Activity
     WHERE isActive = 1
     ORDER BY sortOrder ASC, eventType ASC
@@ -285,7 +302,95 @@ async function activities() {
     points: row.defaultPoint,
     isActive: Boolean(row.isActive),
     sortOrder: row.sortOrder,
+    defaultLocation: row.defaultLocation || null,
+    defaultLocationAddress: row.defaultLocationAddress || null,
   }));
+}
+
+async function favoriteLocations(employeeId: string) {
+  const pool = await getPool("teamup");
+  const result = await pool
+    .request()
+    .input("employeeID", sql.VarChar(50), employeeId)
+    .query(`
+      SELECT favoriteLocationID, location, locationAddress
+      FROM dbo.StaffFavoriteLocation
+      WHERE EmployeeID = @employeeID
+      ORDER BY createdAt DESC, favoriteLocationID DESC
+    `);
+  return result.recordset.map(favoriteLocationDto);
+}
+
+async function createFavoriteLocation(employeeId: string, input: Record<string, unknown>) {
+  const favorite = favoriteLocationInput(input);
+  const pool = await getPool("teamup");
+  const result = await pool
+    .request()
+    .input("employeeID", sql.VarChar(50), employeeId)
+    .input("location", sql.NVarChar(200), favorite.location)
+    .input("locationAddress", sql.NVarChar(300), favorite.locationAddress)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @favoriteLocationID BIGINT;
+
+      SELECT @favoriteLocationID = favoriteLocationID
+      FROM dbo.StaffFavoriteLocation WITH (UPDLOCK, HOLDLOCK)
+      WHERE EmployeeID = @employeeID
+        AND location = @location
+        AND (locationAddress = @locationAddress OR (locationAddress IS NULL AND @locationAddress IS NULL));
+
+      IF @favoriteLocationID IS NULL
+      BEGIN
+        INSERT dbo.StaffFavoriteLocation (EmployeeID, location, locationAddress)
+        VALUES (@employeeID, @location, @locationAddress);
+        SET @favoriteLocationID = SCOPE_IDENTITY();
+      END;
+
+      SELECT favoriteLocationID, location, locationAddress
+      FROM dbo.StaffFavoriteLocation
+      WHERE favoriteLocationID = @favoriteLocationID;
+      COMMIT;
+    `);
+  return favoriteLocationDto(result.recordset[0]);
+}
+
+async function deleteFavoriteLocation(employeeId: string, favoriteLocationId: string) {
+  const pool = await getPool("teamup");
+  const result = await pool
+    .request()
+    .input("employeeID", sql.VarChar(50), employeeId)
+    .input("favoriteLocationID", sql.BigInt, favoriteLocationId)
+    .query(`
+      DELETE FROM dbo.StaffFavoriteLocation
+      WHERE favoriteLocationID = @favoriteLocationID
+        AND EmployeeID = @employeeID;
+    `);
+  if (!result.rowsAffected[0]) throw new ApiError(404, "Favorite location not found");
+}
+
+function favoriteLocationDto(row: Record<string, any>) {
+  return {
+    id: String(row.favoriteLocationID),
+    location: String(row.location),
+    locationAddress: row.locationAddress || null,
+  };
+}
+
+function favoriteLocationInput(input: Record<string, unknown>) {
+  const location = boundedInputString(input.location, "location", 200);
+  const locationAddress = input.locationAddress == null ||
+    (typeof input.locationAddress === "string" && !input.locationAddress.trim())
+    ? null
+    : boundedInputString(input.locationAddress, "locationAddress", 300);
+  return { location, locationAddress };
+}
+
+function boundedInputString(value: unknown, name: string, maxLength: number) {
+  if (typeof value !== "string" || !value.trim()) throw new ApiError(400, `Missing ${name}`);
+  const text = value.trim();
+  if (text.length > maxLength) throw new ApiError(400, `${name} must be at most ${maxLength} characters`);
+  return text;
 }
 
 async function campaigns() {
@@ -411,6 +516,7 @@ async function events() {
       e.startAt,
       e.endAt,
       e.location,
+      e.locationAddress,
       e.description,
       e.isActive,
       a.activityName,
@@ -441,6 +547,8 @@ function eventDto(row: Record<string, any>, includeIsActive = false) {
     startsAt: date(row.startAt),
     endAt: date(row.endAt),
     location: row.location || "",
+    locationAddress: row.locationAddress || null,
+    staticMapUrl: staticMapUrl(row.locationAddress || null),
     description: row.description || "",
     points: Number(row.points),
     rewardExp: Number(row.rewardExp),
@@ -507,6 +615,7 @@ async function dealerEventRows(campaign: Campaign) {
         e.startAt,
         e.endAt,
         e.location,
+        e.locationAddress,
         e.description,
         e.isActive,
         activity.activityName,
@@ -723,7 +832,7 @@ async function dealerSeasonHistory(customerId: string, campaignId: string) {
     request().query(`
       SELECT
         event.eventID, event.campaignID, event.eventType, event.eventName,
-        event.startAt, event.endAt, event.location, event.description, event.isActive,
+        event.startAt, event.endAt, event.location, event.locationAddress, event.description, event.isActive,
         activity.activityName, activity.sortOrder AS activitySortOrder,
         ISNULL(activity.defaultPoint, 0) AS points,
         0 AS rewardExp, 0 AS rewardPoints,
@@ -856,13 +965,14 @@ async function createEventSession(input: Record<string, unknown>) {
     .input("startAt", sql.DateTimeOffset, new Date(parsed.startAt))
     .input("endAt", sql.DateTimeOffset, parsed.endAt ? new Date(parsed.endAt) : null)
     .input("location", sql.NVarChar(200), parsed.location)
+    .input("locationAddress", sql.NVarChar(300), parsed.locationAddress)
     .input("description", sql.NVarChar(1000), parsed.description)
     .query(`
       DECLARE @created TABLE (eventID BIGINT NOT NULL);
 
-      INSERT dbo.[Event] (campaignID, eventType, eventName, startAt, endAt, location, description, isActive)
+      INSERT dbo.[Event] (campaignID, eventType, eventName, startAt, endAt, location, locationAddress, description, isActive)
       OUTPUT inserted.eventID INTO @created(eventID)
-      SELECT @campaignID, @eventType, a.activityName, @startAt, @endAt, @location, @description, 1
+      SELECT @campaignID, @eventType, a.activityName, @startAt, @endAt, @location, @locationAddress, @description, 1
       FROM dbo.Activity a
       WHERE a.eventType = @eventType
         AND a.isActive = 1;

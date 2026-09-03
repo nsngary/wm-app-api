@@ -27,6 +27,8 @@ IF OBJECT_ID(N'dbo.Activity', N'U') IS NULL
     eventType NVARCHAR(50) NOT NULL CONSTRAINT PK_Activity PRIMARY KEY,
     activityName NVARCHAR(200) NOT NULL,
     defaultPoint INT NOT NULL,
+    defaultLocation NVARCHAR(200) NULL,
+    defaultLocationAddress NVARCHAR(300) NULL,
     isActive BIT NOT NULL CONSTRAINT DF_Activity_isActive DEFAULT (1),
     sortOrder INT NOT NULL,
     createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Activity_createdAt DEFAULT (SYSDATETIMEOFFSET()),
@@ -34,30 +36,48 @@ IF OBJECT_ID(N'dbo.Activity', N'U') IS NULL
     CONSTRAINT CK_Activity_defaultPoint CHECK (defaultPoint >= 0)
   );
 
+IF COL_LENGTH(N'dbo.Activity', N'defaultLocation') IS NULL
+  ALTER TABLE dbo.Activity ADD defaultLocation NVARCHAR(200) NULL;
+IF COL_LENGTH(N'dbo.Activity', N'defaultLocationAddress') IS NULL
+  ALTER TABLE dbo.Activity ADD defaultLocationAddress NVARCHAR(300) NULL;
+IF COL_LENGTH(N'dbo.Event', N'locationAddress') IS NULL
+  ALTER TABLE dbo.[Event] ADD locationAddress NVARCHAR(300) NULL;
+
+IF OBJECT_ID(N'dbo.StaffFavoriteLocation', N'U') IS NULL
+  CREATE TABLE dbo.StaffFavoriteLocation (
+    favoriteLocationID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_StaffFavoriteLocation PRIMARY KEY,
+    EmployeeID VARCHAR(50) NOT NULL,
+    location NVARCHAR(200) NOT NULL,
+    locationAddress NVARCHAR(300) NULL,
+    createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_StaffFavoriteLocation_createdAt DEFAULT (SYSDATETIMEOFFSET())
+  );
+
 MERGE dbo.Activity AS target
 USING (VALUES
-  (N'elite', N'菁英研習營', 20, 10),
-  (N'sha', N'SHA一日訓', 15, 20),
-  (N'product_basic', N'產品初階訓課', 10, 30),
-  (N'product_brief', N'產品說明會', 5, 40),
-  (N'business_brief', N'事業說明會', 5, 50),
-  (N'health_meeting', N'與健康有約', 5, 60),
-  (N'business_meeting', N'與經營有約', 5, 70),
-  (N'new_meeting', N'新經理見面會', 5, 80),
-  (N'tea_time', N'下午茶', 5, 90),
-  (N'young_meeting', N'青春同學會', 5, 100)
-) AS source(eventType, activityName, defaultPoint, sortOrder)
+  (N'elite', N'菁英研習營', 20, 10, N'西湖渡假村', N'36742 苗栗縣三義鄉西湖村西湖11號'),
+  (N'sha', N'SHA一日訓', 15, 20, NULL, NULL),
+  (N'product_basic', N'產品初階訓課', 10, 30, NULL, NULL),
+  (N'product_brief', N'產品說明會', 5, 40, NULL, NULL),
+  (N'business_brief', N'事業說明會', 5, 50, NULL, NULL),
+  (N'health_meeting', N'與健康有約', 5, 60, NULL, NULL),
+  (N'business_meeting', N'與經營有約', 5, 70, NULL, NULL),
+  (N'new_meeting', N'新經理見面會', 5, 80, NULL, NULL),
+  (N'tea_time', N'下午茶', 5, 90, NULL, NULL),
+  (N'young_meeting', N'青春同學會', 5, 100, NULL, NULL)
+) AS source(eventType, activityName, defaultPoint, sortOrder, defaultLocation, defaultLocationAddress)
 ON target.eventType = source.eventType
 WHEN MATCHED THEN
   UPDATE SET
     activityName = source.activityName,
     defaultPoint = source.defaultPoint,
     sortOrder = source.sortOrder,
+    defaultLocation = source.defaultLocation,
+    defaultLocationAddress = source.defaultLocationAddress,
     isActive = 1,
     updatedAt = SYSDATETIMEOFFSET()
 WHEN NOT MATCHED THEN
-  INSERT (eventType, activityName, defaultPoint, sortOrder)
-  VALUES (source.eventType, source.activityName, source.defaultPoint, source.sortOrder);
+  INSERT (eventType, activityName, defaultPoint, sortOrder, defaultLocation, defaultLocationAddress)
+  VALUES (source.eventType, source.activityName, source.defaultPoint, source.sortOrder, source.defaultLocation, source.defaultLocationAddress);
 
 IF NOT EXISTS (
   SELECT 1
@@ -235,6 +255,22 @@ IF NOT EXISTS (
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_Event_CampaignStart' AND object_id = OBJECT_ID(N'dbo.Event'))
   CREATE INDEX IX_Event_CampaignStart
   ON dbo.[Event](campaignID, startAt);
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.indexes
+  WHERE name = N'UX_StaffFavoriteLocation_OwnerValue'
+    AND object_id = OBJECT_ID(N'dbo.StaffFavoriteLocation')
+)
+  CREATE UNIQUE INDEX UX_StaffFavoriteLocation_OwnerValue
+  ON dbo.StaffFavoriteLocation(EmployeeID, location, locationAddress);
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.indexes
+  WHERE name = N'IX_StaffFavoriteLocation_OwnerCreated'
+    AND object_id = OBJECT_ID(N'dbo.StaffFavoriteLocation')
+)
+  CREATE INDEX IX_StaffFavoriteLocation_OwnerCreated
+  ON dbo.StaffFavoriteLocation(EmployeeID, createdAt DESC);
 
 IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ExpPointLedger_Source' AND object_id = OBJECT_ID(N'dbo.ExpPointLedger'))
   DROP INDEX UX_ExpPointLedger_Source ON dbo.ExpPointLedger;

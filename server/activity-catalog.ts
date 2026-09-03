@@ -14,6 +14,7 @@ export type EventSessionInput = {
   startAt: string;
   endAt: string | null;
   location: string;
+  locationAddress: string | null;
   description: string;
 };
 
@@ -29,8 +30,6 @@ export const activityCatalog: ActivityDefinition[] = [
   { eventType: "tea_time", name: "下午茶", points: 5, isActive: true, sortOrder: 90 },
   { eventType: "young_meeting", name: "青春同學會", points: 5, isActive: true, sortOrder: 100 },
 ];
-
-export const eventLocations = ["北區", "中區", "南區", "自訂"] as const;
 
 export function defaultLocationForBusinessUnit(value: unknown) {
   return String(value ?? "").trim() === "2" ? "北區" : "中區";
@@ -51,13 +50,6 @@ export function parseEventSessionInput(
   const endAt = optionalIsoDate(input.endAt, "endAt");
   if (endAt && Date.parse(endAt) < Date.parse(startAt)) throw new Error("endAt must be after startAt");
 
-  const locationChoice = string(input.location, "location");
-  if (!eventLocations.includes(locationChoice as (typeof eventLocations)[number])) {
-    throw new Error("Unknown location");
-  }
-  const location =
-    locationChoice === "自訂" ? string(input.customLocation, "customLocation") : locationChoice;
-
   return {
     role: "staff",
     employeeId,
@@ -65,7 +57,8 @@ export function parseEventSessionInput(
     eventName: activity.name,
     startAt,
     endAt,
-    location,
+    location: boundedString(input.location, "location", 200),
+    locationAddress: optionalBoundedString(input.locationAddress, "locationAddress", 300),
     description: optionalString(input.description),
   };
 }
@@ -77,6 +70,17 @@ function string(value: unknown, name: string) {
 
 function optionalString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function boundedString(value: unknown, name: string, maxLength: number) {
+  const text = string(value, name);
+  if (text.length > maxLength) throw new Error(`${name} must be at most ${maxLength} characters`);
+  return text;
+}
+
+function optionalBoundedString(value: unknown, name: string, maxLength: number) {
+  if (value == null || (typeof value === "string" && !value.trim())) return null;
+  return boundedString(value, name, maxLength);
 }
 
 function isoDate(value: unknown, name: string) {

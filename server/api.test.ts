@@ -10,6 +10,45 @@ import {
 const apiSource = readFileSync("server/api.ts", "utf8");
 const seedSource = readFileSync("server/sql/seed.sql", "utf8");
 
+// static map test
+const activitiesSource = apiSource.slice(
+  apiSource.indexOf("async function activities"),
+  apiSource.indexOf("async function campaigns"),
+);
+assert.match(activitiesSource, /defaultLocation, defaultLocationAddress/);
+assert.match(activitiesSource, /defaultLocation: row\.defaultLocation \|\| null/);
+assert.match(activitiesSource, /defaultLocationAddress: row\.defaultLocationAddress \|\| null/);
+
+const eventsSource = apiSource.slice(
+  apiSource.indexOf("async function events"),
+  apiSource.indexOf("async function openDealerCampaign"),
+);
+const dealerEventRowsSource = apiSource.slice(
+  apiSource.indexOf("async function dealerEventRows"),
+  apiSource.indexOf("async function dealerEvents"),
+);
+const dealerSeasonHistorySource = apiSource.slice(
+  apiSource.indexOf("async function dealerSeasonHistory"),
+  apiSource.indexOf("async function createEventSession"),
+);
+assert.match(eventsSource, /e\.locationAddress/);
+assert.match(dealerEventRowsSource, /e\.locationAddress/);
+assert.match(dealerSeasonHistorySource, /event\.locationAddress/);
+assert.match(eventsSource, /locationAddress: row\.locationAddress \|\| null/);
+assert.match(eventsSource, /staticMapUrl\(row\.locationAddress \|\| null\)/);
+
+const favoriteLocationsSource = apiSource.slice(
+  apiSource.indexOf("async function favoriteLocations"),
+  apiSource.indexOf("async function events"),
+);
+assert.match(apiSource, /GET[\s\S]*\/api\/me\/favorite-locations[\s\S]*requireRole\(principal, "staff"\)/);
+assert.match(apiSource, /DELETE[\s\S]*favorite-locations[\s\S]*principal\.subjectId/);
+assert.match(favoriteLocationsSource, /WHERE EmployeeID = @employeeID/);
+assert.match(favoriteLocationsSource, /WITH \(UPDLOCK, HOLDLOCK\)/);
+assert.match(favoriteLocationsSource, /favoriteLocationID = @favoriteLocationID\s+AND EmployeeID = @employeeID/);
+assert.doesNotMatch(favoriteLocationsSource, /input\.EmployeeID|input\.employeeID|input\.employeeId/);
+assert.match(apiSource, /\.input\("locationAddress", sql\.NVarChar\(300\)/);
+
 // 舊 ID-only 登入必須完全移除，所有應用資料都經過 Bearer Principal。
 assert.doesNotMatch(apiSource, /path === "\/api\/login"/);
 assert.match(apiSource, /const principal = await requestPrincipal\(req\)/);
@@ -341,15 +380,31 @@ const eliteSession = parseEventSessionInput(
     eventType: "elite",
     startAt: "2026-08-03T09:00:00+08:00",
     endAt: "2026-08-05T17:00:00+08:00",
-    location: "自訂",
-    customLocation: "南投研習基地",
+    location: " 西湖渡假村 ",
+    locationAddress: " ",
     description: "多日活動",
   },
   activityCatalog,
 );
 
 assert.equal(eliteSession.eventName, "菁英研習營");
-assert.equal(eliteSession.location, "南投研習基地");
+assert.equal(eliteSession.location, "西湖渡假村");
+assert.equal(eliteSession.locationAddress, null);
 assert.equal(eliteSession.endAt, "2026-08-05T17:00:00+08:00");
+
+assert.throws(
+  () =>
+    parseEventSessionInput(
+      {
+        role: "staff",
+        employeeId: "EP00821121",
+        eventType: "elite",
+        startAt: "2026-08-03T09:00:00+08:00",
+        location: " ",
+      },
+      activityCatalog,
+    ),
+  /Missing location/,
+);
 
 console.log("api contracts ok");

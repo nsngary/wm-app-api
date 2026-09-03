@@ -21,6 +21,8 @@ CREATE TABLE dbo.Activity (
   eventType NVARCHAR(50) NOT NULL CONSTRAINT PK_Activity PRIMARY KEY,
   activityName NVARCHAR(200) NOT NULL,
   defaultPoint INT NOT NULL,
+  defaultLocation NVARCHAR(200) NULL,
+  defaultLocationAddress NVARCHAR(300) NULL,
   isActive BIT NOT NULL CONSTRAINT DF_Activity_isActive DEFAULT (1),
   sortOrder INT NOT NULL,
   createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Activity_createdAt DEFAULT (SYSDATETIMEOFFSET()),
@@ -36,6 +38,7 @@ CREATE TABLE dbo.[Event] (
   startAt DATETIMEOFFSET(0) NOT NULL,
   endAt DATETIMEOFFSET(0) NULL,
   location NVARCHAR(200) NULL,
+  locationAddress NVARCHAR(300) NULL,
   description NVARCHAR(1000) NULL,
   isActive BIT NOT NULL CONSTRAINT DF_Event_isActive DEFAULT (1),
   createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Event_createdAt DEFAULT (SYSDATETIMEOFFSET()),
@@ -215,6 +218,17 @@ CREATE TABLE dbo.CustomerReward (
 
 CREATE INDEX IX_Attendance_Customer ON dbo.Attendance(CustomerID, checkedInAt DESC);
 CREATE INDEX IX_Event_CampaignStart ON dbo.[Event](campaignID, startAt);
+CREATE TABLE dbo.StaffFavoriteLocation (
+  favoriteLocationID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_StaffFavoriteLocation PRIMARY KEY,
+  EmployeeID VARCHAR(50) NOT NULL,
+  location NVARCHAR(200) NOT NULL,
+  locationAddress NVARCHAR(300) NULL,
+  createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_StaffFavoriteLocation_createdAt DEFAULT (SYSDATETIMEOFFSET())
+);
+CREATE UNIQUE INDEX UX_StaffFavoriteLocation_OwnerValue
+ON dbo.StaffFavoriteLocation(EmployeeID, location, locationAddress);
+CREATE INDEX IX_StaffFavoriteLocation_OwnerCreated
+ON dbo.StaffFavoriteLocation(EmployeeID, createdAt DESC);
 CREATE INDEX IX_Attendance_EventCustomer ON dbo.Attendance(eventID, status, CustomerID);
 CREATE UNIQUE INDEX UX_Attendance_EventCustomer_CheckedIn
 ON dbo.Attendance(eventID, CustomerID, participantType)
