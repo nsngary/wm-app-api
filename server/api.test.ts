@@ -9,6 +9,7 @@ import {
 
 const apiSource = readFileSync("server/api.ts", "utf8");
 const seedSource = readFileSync("server/sql/seed.sql", "utf8");
+assert.match(seedSource, /N'elite'.*N'西湖度假村'/);
 
 // static map test
 const activitiesSource = apiSource.slice(
@@ -48,6 +49,17 @@ assert.match(favoriteLocationsSource, /WITH \(UPDLOCK, HOLDLOCK\)/);
 assert.match(favoriteLocationsSource, /favoriteLocationID = @favoriteLocationID\s+AND EmployeeID = @employeeID/);
 assert.doesNotMatch(favoriteLocationsSource, /input\.EmployeeID|input\.employeeID|input\.employeeId/);
 assert.match(apiSource, /\.input\("locationAddress", sql\.NVarChar\(300\)/);
+
+const staffAttendeesSource = apiSource.slice(
+  apiSource.indexOf("async function staffEventAttendees"),
+  apiSource.indexOf("async function events"),
+);
+assert.match(apiSource, /staffEventAttendeesRoute = path\.match/);
+assert.match(apiSource, /req\.method === "GET" && staffEventAttendeesRoute/);
+assert.match(apiSource, /staffEventAttendees\(staffEventAttendeesRoute\[1\]\)/);
+assert.match(staffAttendeesSource, /attendance\.status = N'checked_in'/);
+assert.match(staffAttendeesSource, /customerNames/);
+assert.match(staffAttendeesSource, /referredByCustomerId/);
 
 // 舊 ID-only 登入必須完全移除，所有應用資料都經過 Bearer Principal。
 assert.doesNotMatch(apiSource, /path === "\/api\/login"/);
@@ -325,6 +337,7 @@ assert.equal(activityCatalog[0].eventType, "elite");
 assert.equal(activityCatalog[0].points, 20);
 
 assert.equal(defaultLocationForBusinessUnit("WM00000001"), "中區");
+assert.equal(defaultLocationForBusinessUnit("1"), "南區");
 assert.equal(defaultLocationForBusinessUnit("2"), "北區");
 assert.equal(defaultLocationForBusinessUnit("9"), "中區");
 

@@ -56,7 +56,7 @@ IF OBJECT_ID(N'dbo.StaffFavoriteLocation', N'U') IS NULL
 
 MERGE dbo.Activity AS target
 USING (VALUES
-  (N'elite', N'菁英研習營', 20, 10, N'西湖渡假村', N'36742 苗栗縣三義鄉西湖村西湖11號'),
+  (N'elite', N'菁英研習營', 20, 10, N'西湖度假村', N'36742 苗栗縣三義鄉西湖村西湖11號'),
   (N'sha', N'SHA一日訓', 15, 20, NULL, NULL),
   (N'product_basic', N'產品初階訓課', 10, 30, NULL, NULL),
   (N'product_brief', N'產品說明會', 5, 40, NULL, NULL),

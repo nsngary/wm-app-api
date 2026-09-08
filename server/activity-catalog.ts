@@ -32,7 +32,10 @@ export const activityCatalog: ActivityDefinition[] = [
 ];
 
 export function defaultLocationForBusinessUnit(value: unknown) {
-  return String(value ?? "").trim() === "2" ? "北區" : "中區";
+  const businessUnitId = String(value ?? "").trim();
+  if (businessUnitId === "1") return "南區";
+  if (businessUnitId === "2") return "北區";
+  return "中區";
 }
 
 export function parseEventSessionInput(

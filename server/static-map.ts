@@ -7,7 +7,7 @@ export type StaticMapConfig = {
 
 export function staticMapUrl(address: string | null, config: StaticMapConfig = {}): string | null {
   const apiKey = config.apiKey ?? process.env.GOOGLE_MAPS_STATIC_API_KEY;
-  const signingSecret = config.signingSecret ?? process.env.GOOGLE_MAPS_STATIC_SIGNING_SECRET;
+  const signingSecret = config.signingSecret ?? process.env.GOOGLE_MAPS_URL_SIGNING_SECRET;
   if (!address || !apiKey || !signingSecret) return null;
 
   const url = new URL("https://maps.googleapis.com/maps/api/staticmap");

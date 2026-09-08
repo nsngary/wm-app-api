@@ -70,6 +70,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const campaignPatch = path.match(/^\/api\/campaigns\/(\d+)$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
+    const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
 
     if (req.method === "POST" && path === "/api/auth/login") {
       const input = await body(req);
@@ -151,6 +152,12 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     }
     if (req.method === "GET" && path === "/api/events") {
       return send(res, 200, { events: await events() });
+    }
+    if (req.method === "GET" && staffEventAttendeesRoute) {
+      requireRole(principal, "staff");
+      return send(res, 200, {
+        attendees: await staffEventAttendees(staffEventAttendeesRoute[1]),
+      });
     }
     if (req.method === "GET" && path === "/api/me/events") {
       requireRole(principal, "dealer");
@@ -503,6 +510,47 @@ async function assertCampaignExists(campaignID: string) {
       WHERE campaignID = @campaignID
     `);
   if (!result.recordset[0]) throw new ApiError(404, "Campaign not found");
+}
+
+async function staffEventAttendees(eventIdInput: string) {
+  const eventId = Number(eventIdInput);
+  if (!Number.isFinite(eventId)) throw new ApiError(400, "Invalid eventId");
+
+  const pool = await getPool("teamup");
+  const result = await pool.request().input("eventID", sql.BigInt, eventId).query(`
+      SELECT
+        attendance.attendanceID,
+        attendance.CustomerID,
+        attendance.participantName,
+        attendance.participantExternalID,
+        attendance.checkedInAt
+      FROM dbo.Attendance attendance
+      WHERE attendance.eventID = @eventID
+        AND attendance.status = N'checked_in'
+      ORDER BY attendance.checkedInAt DESC, attendance.attendanceID DESC
+    `);
+
+  const customerIds = [...new Set(result.recordset.flatMap((row) =>
+    [row.CustomerID, row.participantExternalID].filter(Boolean).map(String),
+  ))];
+  const names = await customerNames(customerIds);
+
+  return result.recordset.map((row) => {
+    const customerId = String(row.CustomerID);
+    const referredByCustomerId = row.participantExternalID
+      ? String(row.participantExternalID)
+      : null;
+    return {
+      id: String(row.attendanceID),
+      customerId,
+      name: String(row.participantName || names[customerId] || customerId),
+      checkedInAt: date(row.checkedInAt) || "",
+      referredByCustomerId,
+      referredByName: referredByCustomerId
+        ? names[referredByCustomerId] || referredByCustomerId
+        : null,
+    };
+  });
 }
 
 async function events() {

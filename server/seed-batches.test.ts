@@ -48,7 +48,7 @@ for (const column of ["defaultLocation", "defaultLocationAddress"]) {
 assert.match(sql, /COL_LENGTH\(N'dbo\.Event', N'locationAddress'\)/);
 assert.match(sql, /CREATE TABLE dbo\.StaffFavoriteLocation/);
 assert.match(sql, /UX_StaffFavoriteLocation_OwnerValue/);
-assert.match(sql, /N'elite'[\s\S]*N'西湖渡假村'[\s\S]*N'36742 苗栗縣三義鄉西湖村西湖11號'/);
+assert.match(sql, /N'elite'[\s\S]*N'西湖度假村'[\s\S]*N'36742 苗栗縣三義鄉西湖村西湖11號'/);
 assert.match(
   sql,
   /WHEN NOT MATCHED THEN\s+INSERT \(eventType, activityName, defaultPoint, sortOrder, defaultLocation, defaultLocationAddress\)\s+VALUES \(source\.eventType, source\.activityName, source\.defaultPoint, source\.sortOrder, source\.defaultLocation, source\.defaultLocationAddress\)/,
