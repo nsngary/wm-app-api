@@ -49,3 +49,10 @@ export type Campaign = CampaignRange & {
   name: string;
   isOpen: boolean;
 };
+
+export function campaignHasEnded(
+  campaign: CampaignRange,
+  today: string,
+) {
+  return campaign.endsOn < today;
+}

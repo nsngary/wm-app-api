@@ -32,7 +32,7 @@ import {
   companionDirectNewcomerSourceID,
   parseQrPayload,
 } from "./domain";
-import { parseCampaignInput } from "./campaigns";
+import { campaignHasEnded, parseCampaignInput } from "./campaigns";
 import type { Campaign } from "./campaigns";
 import {
   eventCheckInIsOpen,
@@ -493,9 +493,21 @@ async function updateCampaign(campaignID: string, input: Record<string, unknown>
 
 function campaignInput(input: Record<string, unknown>) {
   try {
-    return parseCampaignInput(input);
+    const campaign = parseCampaignInput(input);
+
+    if (
+      campaign.isOpen &&
+      campaignHasEnded(campaign, taipeiDateKey(new Date()))
+    ) {
+      throw new Error("已結束的賽季不能重新開放");
+    }
+
+    return campaign;
   } catch (error) {
-    throw new ApiError(400, error instanceof Error ? error.message : "Invalid campaign");
+    throw new ApiError(
+      400,
+      error instanceof Error ? error.message : "Invalid campaign",
+    );
   }
 }
 

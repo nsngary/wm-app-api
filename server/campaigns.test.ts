@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   campaignContainingDate,
+  campaignHasEnded,
   campaignRangesOverlap,
   parseCampaignInput,
 } from "./campaigns";
@@ -51,6 +52,22 @@ assert.equal(
     { startsOn: "2026-09-30", endsOn: "2026-12-31" },
   ),
   true,
+);
+
+assert.equal(
+  campaignHasEnded(
+    { startsOn: "2026-01-01", endsOn: "2026-08-31" },
+    "2026-09-08",
+  ),
+  true,
+);
+
+assert.equal(
+  campaignHasEnded(
+    { startsOn: "2026-01-01", endsOn: "2026-09-08" },
+    "2026-09-08",
+  ),
+  false,
 );
 
 assert.equal(
