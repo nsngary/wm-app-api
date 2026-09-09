@@ -113,6 +113,11 @@ export class AuthHttpError extends Error {
 
 const INVALID_LOGIN_MESSAGE = "帳號或密碼錯誤";
 
+export function normalizeLoginAccountId(rawAccountId: string) {
+  const accountId = rawAccountId.trim().toUpperCase();
+  return /^\d{6}$/.test(accountId) ? `EP00${accountId}` : accountId;
+}
+
 // -------------------------------------------------------------------------------------- //
 // -------------------------------------------------------------------------------------- //
 // -------------------------------------------------------------------------------------- //
@@ -157,7 +162,7 @@ export async function authenticatePassword(
   rawAccountId: string,
   password: string,
 ): Promise<AuthenticatedIdentity> {
-  const accountId = rawAccountId.trim().toUpperCase();
+  const accountId = normalizeLoginAccountId(rawAccountId);
 
   // 在查詢帳號前統一擋下異常輸入，避免藉由錯誤文字推測遷移狀態。
   try {

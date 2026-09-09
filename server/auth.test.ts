@@ -5,6 +5,7 @@ import {
     hashPassword,
     hashToken,
     matchesLegacyPassword,
+    normalizeLoginAccountId,
     ACCESS_TOKEN_TTL_MS,
     REFRESH_TOKEN_TTL_MS,
     SESSION_ABSOLUTE_TTL_MS,
@@ -13,6 +14,10 @@ import {
 } from "./auth";
 
 async function main() {
+    assert.equal(normalizeLoginAccountId("821121"), "EP00821121");
+    assert.equal(normalizeLoginAccountId(" ep00821121 "), "EP00821121");
+    assert.equal(normalizeLoginAccountId(" tw2626369 "), "TW2626369");
+    
     const authSql = readFileSync("server/sql/auth.sql", "utf8");
     const authSource = readFileSync("server/auth.ts", "utf8");
     const resetSource = readFileSync("server/reset.ts", "utf8");
