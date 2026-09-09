@@ -1921,7 +1921,7 @@ async function claim(input: Record<string, unknown>) {
         FROM dbo.CustomerReward WITH (UPDLOCK, ROWLOCK)
         WHERE giftCode = @giftCode AND status = N'issue' AND isGet = 0;
 
-        IF @customerRewardID IS NULL THROW 53000, 'Reward not claimable', 1;
+        IF @customerRewardID IS NULL THROW 53000, '無效的 CustomerRewardID', 1;
 
         UPDATE dbo.CustomerReward
         SET status = N'got',
