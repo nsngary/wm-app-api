@@ -653,10 +653,10 @@ async function campaignForDate(day: string) {
 
 async function assertOpenCampaignEvent(eventID: number, now = new Date()) {
   const campaign = await openDealerCampaign(taipeiDateKey(now));
-  if (!campaign) throw new ApiError(400, "Activity check-in is not open");
+  if (!campaign) throw new ApiError(400, "活動尚未開放簽到");
   const event = (await events()).find((item) => item.eventID === eventID);
   if (!event?.startsAt || !eventCheckInIsOpen({ ...event, startsAt: event.startsAt }, campaign, now)) {
-    throw new ApiError(400, "Activity check-in is not open");
+    throw new ApiError(400, "活動尚未開放簽到");
   }
   return { campaign, event };
 }
@@ -1431,7 +1431,7 @@ async function staffCheckInContext(qrCode: string) {
 async function directNewcomers(customerId: string, eventId: number) {
   if (!Number.isFinite(eventId)) throw new ApiError(400, "Missing eventId");
   const campaign = await openDealerCampaign(taipeiDateKey(new Date()));
-  if (!campaign) throw new ApiError(400, "Activity check-in is not open");
+  if (!campaign) throw new ApiError(400, "活動尚未開放簽到");
   const event = await eventForNewcomerWindow(eventId, campaign.id);
   const [wm, teamup] = await Promise.all([getPool("wm"), getPool("teamup")]);
   const result = await wm
