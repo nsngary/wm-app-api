@@ -99,6 +99,15 @@ assert.match(seedSource, /CREATE TABLE dbo\.Campaign/);
 assert.match(seedSource, /CK_Campaign_DateRange CHECK \(endsOn >= startsOn\)/);
 assert.match(seedSource, /CREATE UNIQUE INDEX UX_Campaign_OneOpen\s+ON dbo\.Campaign\(isOpen\)\s+WHERE isOpen = 1;/);
 
+assert.match(
+  apiSource,
+  /path\.match\(\/\^\\\/api\\\/staff-access\\\/\(\[\^\/\]\+\)\\\/manager\$\//,
+);
+assert.match(apiSource, /req\.method === "GET" && path === "\/api\/staff-access"/);
+assert.match(apiSource, /accessLevel = N'admin'[\s\S]*throw new ApiError\(400/);
+assert.match(apiSource, /N'manager_granted'/);
+assert.match(apiSource, /N'manager_revoked'/);
+
 const dealerEventsRoute = apiSource.match(
   /if \(req\.method === "GET" && path === "\/api\/me\/events"\) \{([\s\S]*?)\n    \}/,
 )?.[1];

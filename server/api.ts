@@ -32,11 +32,7 @@ import {
   companionDirectNewcomerSourceID,
   parseQrPayload,
 } from "./domain";
-import {
-  canExtendCampaign,
-  parseCampaignCreateInput,
-  parseCampaignUpdateInput,
-} from "./campaigns";
+import { parseCampaignCreateInput, parseCampaignUpdateInput } from "./campaigns";
 import type { Campaign } from "./campaigns";
 import {
   eventCheckInIsOpen,
@@ -75,6 +71,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const campaignPatch = path.match(/^\/api\/campaigns\/(\d+)$/);
     const campaignCloseRoute = path.match(/^\/api\/campaigns\/(\d+)\/close$/);
     const campaignActivateRoute = path.match(/^\/api\/campaigns\/(\d+)\/activate$/);
+    const staffManagerRoute = path.match(/^\/api\/staff-access\/([^/]+)\/manager$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
     const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
@@ -234,6 +231,29 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         campaign: await activateCampaign(principal.subjectId, campaignActivateRoute[1]),
       });
     }
+    if (req.method === "GET" && path === "/api/staff-access") {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        staff: await staffAccessEntries(url.searchParams.get("query") ?? ""),
+      });
+    }
+    if (req.method === "PUT" && staffManagerRoute) {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        staff: await grantManager(
+          principal.subjectId,
+          decodeURIComponent(staffManagerRoute[1]),
+        ),
+      });
+    }
+    if (req.method === "DELETE" && staffManagerRoute) {
+      await requireStaffAccess(principal, "admin");
+      await revokeManager(
+        principal.subjectId,
+        decodeURIComponent(staffManagerRoute[1]),
+      );
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "POST" && path === "/api/events") {
       requireRole(principal, "staff");
       return send(res, 200, {
@@ -313,10 +333,16 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       error instanceof Error &&
       /UX_Attendance_EventCustomer_CheckedIn|Cannot inser duplicate key/.test(error.message);
     const campaignRangeConflict =
-      error instanceof Error && /Campaign date range overlaps an existing campaign/.test(error.message);
+      error instanceof Error && /Campaign date range overlaps an existing campaign|日期與現存賽季重疊/.test(error.message);
+    const campaignNotFound = error instanceof Error && /找不到賽季/.test(error.message);
+    const businessRuleError = error instanceof Error && /結束日期不能|已關閉或已結束賽季|Manager 只能延長賽季|只能關閉目前開放中的賽季|此賽季目前不能開啟|不能變更 admin 權限|不能收回 admin 權限/.test(error.message);
 
     const status = duplicateAttendance || campaignRangeConflict
       ? 409
+      : campaignNotFound
+        ? 404
+        : businessRuleError
+          ? 400
       : error instanceof ApiError || error instanceof AuthHttpError
         ? error.status
         : 500;
@@ -686,6 +712,146 @@ async function requireStaffAccess(
     : level === "admin";
   if (!allowed) throw new ApiError(403, "權限不足");
   return level;
+}
+
+async function staffAccessEntries(query: string) {
+  const keyword = query.trim();
+  if (keyword && keyword.length < 2) {
+    throw new ApiError(400, "請至少輸入兩個字元");
+  }
+
+  if (keyword) {
+    const wm = await getPool("wm");
+    const employees = await wm.request()
+      .input("query", sql.NVarChar(100), `%${keyword}%`)
+      .query(`
+        SELECT TOP (30) EmployeeID, FullName
+        FROM dbo.Employee
+        WHERE EmployeeID LIKE @query OR FullName LIKE @query
+        ORDER BY EmployeeID
+      `);
+    const ids = employees.recordset.map((row) => String(row.EmployeeID));
+    const access = await staffAccessMap(ids);
+    return employees.recordset.map((row) => ({
+      subjectId: String(row.EmployeeID),
+      name: String(row.FullName || row.EmployeeID),
+      accessLevel: access[String(row.EmployeeID)] ?? "staff",
+    }));
+  }
+
+  const teamup = await getPool("teamup");
+  const elevated = await teamup.request().query(`
+    SELECT subjectID, accessLevel
+    FROM dbo.StaffAccess
+    ORDER BY CASE accessLevel WHEN N'admin' THEN 0 ELSE 1 END, subjectID
+  `);
+  const ids = elevated.recordset.map((row) => String(row.subjectID));
+  const names = await employeeNames(ids);
+  return elevated.recordset.map((row) => ({
+    subjectId: String(row.subjectID),
+    name: names[String(row.subjectID)] ?? String(row.subjectID),
+    accessLevel: row.accessLevel as StaffAccessLevel,
+  }));
+}
+
+async function staffAccessMap(ids: string[]) {
+  if (!ids.length) return {} as Record<string, StaffAccessLevel>;
+  const teamup = await getPool("teamup");
+  const request = teamup.request();
+  const parameters = ids.map((id, index) => {
+    request.input(`subjectID${index}`, sql.VarChar(50), id);
+    return `@subjectID${index}`;
+  });
+  const result = await request.query(`
+    SELECT subjectID, accessLevel
+    FROM dbo.StaffAccess
+    WHERE subjectID IN (${parameters.join(",")})
+  `);
+  return Object.fromEntries(result.recordset.map((row) => [
+    String(row.subjectID),
+    row.accessLevel as StaffAccessLevel,
+  ]));
+}
+
+async function employeeNames(ids: string[]) {
+  if (!ids.length) return {} as Record<string, string>;
+  const wm = await getPool("wm");
+  const request = wm.request();
+  const parameters = ids.map((id, index) => {
+    request.input(`employeeID${index}`, sql.VarChar(50), id);
+    return `@employeeID${index}`;
+  });
+  const result = await request.query(`
+    SELECT EmployeeID, FullName
+    FROM dbo.Employee
+    WHERE EmployeeID IN (${parameters.join(",")})
+  `);
+  return Object.fromEntries(result.recordset.map((row) => [
+    String(row.EmployeeID),
+    String(row.FullName || row.EmployeeID),
+  ]));
+}
+
+async function grantManager(actorSubjectId: string, subjectId: string) {
+  const targetId = staffSubjectId(subjectId);
+  await assertEmployee(targetId);
+  const teamup = await getPool("teamup");
+  await teamup.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("subjectID", sql.VarChar(50), targetId)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @accessLevel NVARCHAR(20);
+      SELECT @accessLevel = accessLevel
+      FROM dbo.StaffAccess WITH (UPDLOCK, HOLDLOCK)
+      WHERE subjectID = @subjectID;
+      IF @accessLevel = N'admin' THROW 51011, '不能變更 admin 權限', 1;
+      IF @accessLevel IS NULL
+      BEGIN
+        INSERT dbo.StaffAccess (subjectID, accessLevel, grantedBySubjectID)
+        VALUES (@subjectID, N'manager', @actorSubjectID);
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, afterJson)
+        VALUES (@actorSubjectID, N'manager_granted', N'staff', @subjectID,
+          (SELECT @subjectID AS subjectId, N'manager' AS accessLevel FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+      END;
+      COMMIT;
+    `);
+  const names = await employeeNames([targetId]);
+  return { subjectId: targetId, name: names[targetId] ?? targetId, accessLevel: "manager" as const };
+}
+
+async function revokeManager(actorSubjectId: string, subjectId: string) {
+  const targetId = staffSubjectId(subjectId);
+  const teamup = await getPool("teamup");
+  await teamup.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("subjectID", sql.VarChar(50), targetId)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @accessLevel NVARCHAR(20);
+      SELECT @accessLevel = accessLevel
+      FROM dbo.StaffAccess WITH (UPDLOCK, HOLDLOCK)
+      WHERE subjectID = @subjectID;
+      IF @accessLevel = N'admin' THROW 51012, '不能收回 admin 權限', 1;
+      IF @accessLevel = N'manager'
+      BEGIN
+        DELETE dbo.StaffAccess WHERE subjectID = @subjectID AND accessLevel = N'manager';
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson)
+        VALUES (@actorSubjectID, N'manager_revoked', N'staff', @subjectID,
+          (SELECT @subjectID AS subjectId, N'manager' AS accessLevel FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+      END;
+      COMMIT;
+    `);
+}
+
+function staffSubjectId(value: string) {
+  const subjectId = value.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{2,50}$/.test(subjectId)) {
+    throw new ApiError(400, "無效的 staff ID");
+  }
+  return subjectId;
 }
 
 async function staffEventAttendees(eventIdInput: string) {
@@ -2551,7 +2717,7 @@ async function requestPrincipal(req: IncomingMessage): Promise<AuthPrincipal> {
 
 function setCors(res: ServerResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
 }
 
