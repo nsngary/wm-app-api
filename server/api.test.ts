@@ -79,21 +79,35 @@ const createCampaignRoute = apiSource.match(
   /if \(req\.method === "POST" && path === "\/api\/campaigns"\) \{([\s\S]*?)\n    \}/,
 )?.[1];
 assert.ok(createCampaignRoute, "POST /api/campaigns must exist");
-assert.match(createCampaignRoute, /requireRole\(principal, "staff"\)/);
+assert.match(createCampaignRoute, /await requireStaffAccess\(principal, "manager"\)/);
 
 assert.ok(apiSource.includes("path.match(/^\\/api\\/campaigns\\/(\\d+)$/)"));
 assert.match(apiSource, /req\.method === "PATCH" && campaignPatch/);
-assert.match(apiSource, /requireRole\(principal, "staff"\)/);
+assert.match(apiSource, /type StaffAccessLevel = "staff" \| "manager" \| "admin"/);
+assert.match(apiSource, /await requireStaffAccess\(principal, "manager"\)/);
+assert.match(apiSource, /await requireStaffAccess\(principal, "admin"\)/);
+assert.match(apiSource, /staffAccessLevel: await staffAccessLevel\(principal\.subjectId\)/);
+assert.match(apiSource, /closedAt: row\.closedAt/);
+assert.match(apiSource, /req\.method === "POST" && campaignCloseRoute/);
+assert.match(apiSource, /req\.method === "POST" && campaignActivateRoute/);
+assert.doesNotMatch(apiSource, /input\("isOpen", sql\.Bit, campaign\.isOpen\)/);
 assert.match(apiSource, /startsOn <= @endsOn\s+AND endsOn >= @startsOn/);
 assert.match(apiSource, /campaignID <> @campaignID/);
-assert.match(apiSource, /await assertCampaignExists\(campaignID\)/);
 assert.match(apiSource, /WITH \(UPDLOCK, HOLDLOCK\)/);
 assert.match(apiSource, /BEGIN TRAN;[\s\S]*WITH \(UPDLOCK, HOLDLOCK\)[\s\S]*(INSERT|UPDATE) dbo\.Campaign[\s\S]*COMMIT;/);
 assert.match(apiSource, /try \{\s*return JSON\.parse\([\s\S]*\} catch \{\s*throw new ApiError\(400, "Invalid JSON body"\)/);
-assert.match(apiSource, /SET XACT_ABORT ON;[\s\S]*BEGIN TRAN;[\s\S]*IF @isOpen = 1[\s\S]*UPDATE dbo\.Campaign[\s\S]*SET isOpen = 0[\s\S]*(INSERT|UPDATE) dbo\.Campaign[\s\S]*COMMIT;/);
 assert.match(seedSource, /CREATE TABLE dbo\.Campaign/);
 assert.match(seedSource, /CK_Campaign_DateRange CHECK \(endsOn >= startsOn\)/);
 assert.match(seedSource, /CREATE UNIQUE INDEX UX_Campaign_OneOpen\s+ON dbo\.Campaign\(isOpen\)\s+WHERE isOpen = 1;/);
+
+assert.match(
+  apiSource,
+  /path\.match\(\/\^\\\/api\\\/staff-access\\\/\(\[\^\/\]\+\)\\\/manager\$\//,
+);
+assert.match(apiSource, /req\.method === "GET" && path === "\/api\/staff-access"/);
+assert.match(apiSource, /accessLevel = N'admin'[\s\S]*throw new ApiError\(400/);
+assert.match(apiSource, /N'manager_granted'/);
+assert.match(apiSource, /N'manager_revoked'/);
 
 const dealerEventsRoute = apiSource.match(
   /if \(req\.method === "GET" && path === "\/api\/me\/events"\) \{([\s\S]*?)\n    \}/,

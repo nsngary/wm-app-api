@@ -32,7 +32,7 @@ import {
   companionDirectNewcomerSourceID,
   parseQrPayload,
 } from "./domain";
-import { campaignHasEnded, parseCampaignInput } from "./campaigns";
+import { parseCampaignCreateInput, parseCampaignUpdateInput } from "./campaigns";
 import type { Campaign } from "./campaigns";
 import {
   eventCheckInIsOpen,
@@ -41,6 +41,7 @@ import {
 import { staticMapUrl } from "./static-map";
 
 type Role = "dealer" | "staff";
+type StaffAccessLevel = "staff" | "manager" | "admin";
 
 class ApiError extends Error {
   constructor(
@@ -68,6 +69,9 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url || "/", "http://localhost");
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const campaignPatch = path.match(/^\/api\/campaigns\/(\d+)$/);
+    const campaignCloseRoute = path.match(/^\/api\/campaigns\/(\d+)\/close$/);
+    const campaignActivateRoute = path.match(/^\/api\/campaigns\/(\d+)\/activate$/);
+    const staffManagerRoute = path.match(/^\/api\/staff-access\/([^/]+)\/manager$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
     const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
@@ -193,17 +197,62 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     }
     if (req.method === "GET" && path === "/api/campaigns") {
       requireRole(principal, "staff");
-      return send(res, 200, { campaigns: await campaigns() });
+      return send(res, 200, {
+        campaigns: await campaigns(),
+        staffAccessLevel: await staffAccessLevel(principal.subjectId),
+      });
     }
     if (req.method === "POST" && path === "/api/campaigns") {
-      requireRole(principal, "staff");
-      return send(res, 200, { campaign: await createCampaign(await body(req)) });
+      await requireStaffAccess(principal, "manager");
+      return send(res, 200, {
+        campaign: await createCampaign(principal.subjectId, await body(req)),
+      });
     }
     if (req.method === "PATCH" && campaignPatch) {
-      requireRole(principal, "staff");
+      const accessLevel = await requireStaffAccess(principal, "manager");
       return send(res, 200, {
-        campaign: await updateCampaign(campaignPatch[1], await body(req)),
+        campaign: await updateCampaign(
+          principal.subjectId,
+          accessLevel,
+          campaignPatch[1],
+          await body(req),
+        ),
       });
+    }
+    if (req.method === "POST" && campaignCloseRoute) {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        campaign: await closeCampaign(principal.subjectId, campaignCloseRoute[1]),
+      });
+    }
+    if (req.method === "POST" && campaignActivateRoute) {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        campaign: await activateCampaign(principal.subjectId, campaignActivateRoute[1]),
+      });
+    }
+    if (req.method === "GET" && path === "/api/staff-access") {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        staff: await staffAccessEntries(url.searchParams.get("query") ?? ""),
+      });
+    }
+    if (req.method === "PUT" && staffManagerRoute) {
+      await requireStaffAccess(principal, "admin");
+      return send(res, 200, {
+        staff: await grantManager(
+          principal.subjectId,
+          decodeURIComponent(staffManagerRoute[1]),
+        ),
+      });
+    }
+    if (req.method === "DELETE" && staffManagerRoute) {
+      await requireStaffAccess(principal, "admin");
+      await revokeManager(
+        principal.subjectId,
+        decodeURIComponent(staffManagerRoute[1]),
+      );
+      return send(res, 200, { ok: true });
     }
     if (req.method === "POST" && path === "/api/events") {
       requireRole(principal, "staff");
@@ -284,10 +333,16 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       error instanceof Error &&
       /UX_Attendance_EventCustomer_CheckedIn|Cannot inser duplicate key/.test(error.message);
     const campaignRangeConflict =
-      error instanceof Error && /Campaign date range overlaps an existing campaign/.test(error.message);
+      error instanceof Error && /Campaign date range overlaps an existing campaign|日期與現存賽季重疊/.test(error.message);
+    const campaignNotFound = error instanceof Error && /找不到賽季/.test(error.message);
+    const businessRuleError = error instanceof Error && /結束日期不能|已關閉或已結束賽季|Manager 只能延長賽季|只能關閉目前開放中的賽季|此賽季目前不能開啟|不能變更 admin 權限|不能收回 admin 權限/.test(error.message);
 
     const status = duplicateAttendance || campaignRangeConflict
       ? 409
+      : campaignNotFound
+        ? 404
+        : businessRuleError
+          ? 400
       : error instanceof ApiError || error instanceof AuthHttpError
         ? error.status
         : 500;
@@ -410,7 +465,7 @@ function boundedInputString(value: unknown, name: string, maxLength: number) {
 async function campaigns() {
   const pool = await getPool("teamup");
   const result = await pool.request().query(`
-    SELECT campaignID, name, startsOn, endsOn, isOpen
+    SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt
     FROM dbo.Campaign
     ORDER BY startsOn DESC, campaignID DESC
   `);
@@ -424,19 +479,20 @@ function campaignDto(row: Record<string, any>): Campaign {
     startsOn: dateOnly(row.startsOn),
     endsOn: dateOnly(row.endsOn),
     isOpen: Boolean(row.isOpen),
+    closedAt: row.closedAt ? date(row.closedAt) : null,
   };
 }
 
-async function createCampaign(input: Record<string, unknown>) {
-  const campaign = campaignInput(input);
+async function createCampaign(actorSubjectId: string, input: Record<string, unknown>) {
+  const campaign = campaignCreateInput(input);
 
   const pool = await getPool("teamup");
   const result = await pool
     .request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
     .input("name", sql.NVarChar(100), campaign.name)
     .input("startsOn", sql.Date, campaign.startsOn)
     .input("endsOn", sql.Date, campaign.endsOn)
-    .input("isOpen", sql.Bit, campaign.isOpen)
     .query(`
       SET XACT_ABORT ON;
       BEGIN TRAN;
@@ -447,34 +503,66 @@ async function createCampaign(input: Record<string, unknown>) {
           AND endsOn >= @startsOn
       ) THROW 51003, '日期與現存賽季重疊', 1;
 
-      IF @isOpen = 1
-        UPDATE dbo.Campaign
-        SET isOpen = 0, updatedAt = SYSDATETIMEOFFSET()
-        WHERE isOpen = 1;
-
+      DECLARE @created TABLE (
+        campaignID BIGINT, name NVARCHAR(100), startsOn DATE, endsOn DATE, isOpen BIT,
+        closedAt DATETIMEOFFSET(0)
+      );
       INSERT dbo.Campaign (name, startsOn, endsOn, isOpen)
-      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen
-      VALUES (@name, @startsOn, @endsOn, @isOpen);
+      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen, inserted.closedAt
+        INTO @created
+      VALUES (@name, @startsOn, @endsOn, 0);
+
+      INSERT dbo.StaffAdminAudit (
+        actorSubjectID, action, targetType, targetID, afterJson
+      )
+      SELECT @actorSubjectID, N'campaign_created', N'campaign', CONVERT(VARCHAR(50), campaignID),
+        (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+      FROM @created;
+
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM @created;
       COMMIT;
     `);
   return campaignDto(result.recordset[0]);
 }
 
-async function updateCampaign(campaignID: string, input: Record<string, unknown>) {
-  const campaign = campaignInput(input);
-  await assertCampaignExists(campaignID);
+async function updateCampaign(
+  actorSubjectId: string,
+  accessLevel: StaffAccessLevel,
+  campaignID: string,
+  input: Record<string, unknown>,
+) {
+  const campaign = campaignUpdateInput(input);
 
   const pool = await getPool("teamup");
   const result = await pool
     .request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("accessLevel", sql.NVarChar(20), accessLevel)
     .input("campaignID", sql.BigInt, campaignID)
     .input("name", sql.NVarChar(100), campaign.name)
-    .input("startsOn", sql.Date, campaign.startsOn)
     .input("endsOn", sql.Date, campaign.endsOn)
-    .input("isOpen", sql.Bit, campaign.isOpen)
+    .input("today", sql.Date, taipeiDateKey(new Date()))
     .query(`
       SET XACT_ABORT ON;
       BEGIN TRAN;
+      DECLARE @oldName NVARCHAR(100), @startsOn DATE, @oldEndsOn DATE,
+        @isOpen BIT, @closedAt DATETIMEOFFSET(0), @beforeJson NVARCHAR(MAX);
+      SELECT @oldName = name, @startsOn = startsOn, @oldEndsOn = endsOn,
+        @isOpen = isOpen, @closedAt = closedAt,
+        @beforeJson = (SELECT campaignID AS id, name, startsOn, endsOn, isOpen
+          FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+      FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
+      WHERE campaignID = @campaignID;
+
+      IF @startsOn IS NULL THROW 51004, '找不到賽季', 1;
+      IF @endsOn < @startsOn THROW 51005, '結束日期不能早於開始日期', 1;
+      IF @endsOn <> @oldEndsOn AND (@closedAt IS NOT NULL OR @oldEndsOn < @today)
+        THROW 51006, '已關閉或已結束賽季不能修改日期', 1;
+      IF @accessLevel = N'manager' AND @endsOn < @oldEndsOn
+        THROW 51007, 'Manager 只能延長賽季', 1;
+      IF @accessLevel = N'admin' AND @endsOn < @today
+        THROW 51008, '結束日期不能早於今天', 1;
+
       IF EXISTS (
         SELECT 1
         FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
@@ -483,33 +571,108 @@ async function updateCampaign(campaignID: string, input: Record<string, unknown>
           AND campaignID <> @campaignID
       ) THROW 51003, '日期與現存賽季重疊', 1;
 
-      IF @isOpen = 1
-        UPDATE dbo.Campaign
-        SET isOpen = 0, updatedAt = SYSDATETIMEOFFSET()
-        WHERE isOpen = 1 AND campaignID <> @campaignID;
-
       UPDATE dbo.Campaign
-      SET name = @name, startsOn = @startsOn, endsOn = @endsOn, isOpen = @isOpen, updatedAt = SYSDATETIMEOFFSET()
-      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen
+      SET name = @name, endsOn = @endsOn, updatedAt = SYSDATETIMEOFFSET()
+      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen, inserted.closedAt
       WHERE campaignID = @campaignID;
+
+      IF @oldName <> @name
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+        SELECT @actorSubjectID, N'campaign_renamed', N'campaign', CONVERT(VARCHAR(50), @campaignID), @beforeJson,
+          (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+            WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+      IF @endsOn > @oldEndsOn
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+        SELECT @actorSubjectID, N'campaign_extended', N'campaign', CONVERT(VARCHAR(50), @campaignID), @beforeJson,
+          (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+            WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+      IF @endsOn < @oldEndsOn
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+        SELECT @actorSubjectID, N'campaign_shortened', N'campaign', CONVERT(VARCHAR(50), @campaignID), @beforeJson,
+          (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+            WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
       COMMIT;
     `);
   if (!result.recordset[0]) throw new ApiError(404, "Campaign not found");
   return campaignDto(result.recordset[0]);
 }
 
-function campaignInput(input: Record<string, unknown>) {
+async function closeCampaign(actorSubjectId: string, campaignID: string) {
+  const pool = await getPool("teamup");
+  const result = await pool.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("campaignID", sql.BigInt, campaignID)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @beforeJson NVARCHAR(MAX);
+      SELECT @beforeJson = (SELECT campaignID AS id, name, startsOn, endsOn, isOpen
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+      FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
+      WHERE campaignID = @campaignID AND isOpen = 1;
+      IF @beforeJson IS NULL THROW 51009, '只能關閉目前開放中的賽季', 1;
+
+      UPDATE dbo.Campaign
+      SET isOpen = 0, closedAt = SYSDATETIMEOFFSET(), updatedAt = SYSDATETIMEOFFSET()
+      WHERE campaignID = @campaignID;
+      INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+      SELECT @actorSubjectID, N'campaign_closed', N'campaign', CONVERT(VARCHAR(50), @campaignID), @beforeJson,
+        (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+          WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM dbo.Campaign WHERE campaignID = @campaignID;
+      COMMIT;
+    `);
+  return campaignDto(result.recordset[0]);
+}
+
+async function activateCampaign(actorSubjectId: string, campaignID: string) {
+  const pool = await getPool("teamup");
+  const result = await pool.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("campaignID", sql.BigInt, campaignID)
+    .input("today", sql.Date, taipeiDateKey(new Date()))
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @targetBefore NVARCHAR(MAX), @currentID BIGINT, @currentBefore NVARCHAR(MAX);
+      SELECT @targetBefore = (SELECT campaignID AS id, name, startsOn, endsOn, isOpen
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+      FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
+      WHERE campaignID = @campaignID AND closedAt IS NULL
+        AND startsOn <= @today AND endsOn >= @today AND isOpen = 0;
+      IF @targetBefore IS NULL THROW 51010, '此賽季目前不能開啟', 1;
+
+      SELECT @currentID = campaignID,
+        @currentBefore = (SELECT campaignID AS id, name, startsOn, endsOn, isOpen
+          FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+      FROM dbo.Campaign WITH (UPDLOCK, HOLDLOCK)
+      WHERE isOpen = 1;
+
+      IF @currentID IS NOT NULL
+      BEGIN
+        UPDATE dbo.Campaign SET isOpen = 0, closedAt = SYSDATETIMEOFFSET(), updatedAt = SYSDATETIMEOFFSET()
+        WHERE campaignID = @currentID;
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+        SELECT @actorSubjectID, N'campaign_closed', N'campaign', CONVERT(VARCHAR(50), @currentID), @currentBefore,
+          (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+            WHERE campaignID = @currentID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+      END;
+
+      UPDATE dbo.Campaign SET isOpen = 1, updatedAt = SYSDATETIMEOFFSET()
+      WHERE campaignID = @campaignID;
+      INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson, afterJson)
+      SELECT @actorSubjectID, N'campaign_switched', N'campaign', CONVERT(VARCHAR(50), @campaignID), @targetBefore,
+        (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
+          WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM dbo.Campaign WHERE campaignID = @campaignID;
+      COMMIT;
+    `);
+  return campaignDto(result.recordset[0]);
+}
+
+function campaignCreateInput(input: Record<string, unknown>) {
   try {
-    const campaign = parseCampaignInput(input);
-
-    if (
-      campaign.isOpen &&
-      campaignHasEnded(campaign, taipeiDateKey(new Date()))
-    ) {
-      throw new Error("已結束的賽季不能重新開放");
-    }
-
-    return campaign;
+    return parseCampaignCreateInput(input);
   } catch (error) {
     throw new ApiError(
       400,
@@ -518,17 +681,179 @@ function campaignInput(input: Record<string, unknown>) {
   }
 }
 
-async function assertCampaignExists(campaignID: string) {
+function campaignUpdateInput(input: Record<string, unknown>) {
+  try {
+    return parseCampaignUpdateInput(input);
+  } catch (error) {
+    throw new ApiError(
+      400,
+      error instanceof Error ? error.message : "Invalid campaign",
+    );
+  }
+}
+
+async function staffAccessLevel(subjectId: string): Promise<StaffAccessLevel> {
   const pool = await getPool("teamup");
-  const result = await pool
-    .request()
-    .input("campaignID", sql.BigInt, campaignID)
+  const result = await pool.request()
+    .input("subjectID", sql.VarChar(50), subjectId)
     .query(`
-      SELECT campaignID
-      FROM dbo.Campaign
-      WHERE campaignID = @campaignID
+      SELECT accessLevel FROM dbo.StaffAccess WHERE subjectID = @subjectID
     `);
-  if (!result.recordset[0]) throw new ApiError(404, "Campaign not found");
+  const level = result.recordset[0]?.accessLevel;
+  return level === "manager" || level === "admin" ? level : "staff";
+}
+
+async function requireStaffAccess(
+  principal: AuthPrincipal,
+  minimum: "manager" | "admin",
+): Promise<StaffAccessLevel> {
+  requireRole(principal, "staff");
+  const level = await staffAccessLevel(principal.subjectId);
+  const allowed = minimum === "manager"
+    ? level === "manager" || level === "admin"
+    : level === "admin";
+  if (!allowed) throw new ApiError(403, "權限不足");
+  return level;
+}
+
+async function staffAccessEntries(query: string) {
+  const keyword = query.trim();
+  if (keyword && keyword.length < 2) {
+    throw new ApiError(400, "請至少輸入兩個字元");
+  }
+
+  if (keyword) {
+    const wm = await getPool("wm");
+    const employees = await wm.request()
+      .input("query", sql.NVarChar(100), `%${keyword}%`)
+      .query(`
+        SELECT TOP (30) EmployeeID, FullName
+        FROM dbo.Employee
+        WHERE EmployeeID LIKE @query OR FullName LIKE @query
+        ORDER BY EmployeeID
+      `);
+    const ids = employees.recordset.map((row) => String(row.EmployeeID));
+    const access = await staffAccessMap(ids);
+    return employees.recordset.map((row) => ({
+      subjectId: String(row.EmployeeID),
+      name: String(row.FullName || row.EmployeeID),
+      accessLevel: access[String(row.EmployeeID)] ?? "staff",
+    }));
+  }
+
+  const teamup = await getPool("teamup");
+  const elevated = await teamup.request().query(`
+    SELECT subjectID, accessLevel
+    FROM dbo.StaffAccess
+    ORDER BY CASE accessLevel WHEN N'admin' THEN 0 ELSE 1 END, subjectID
+  `);
+  const ids = elevated.recordset.map((row) => String(row.subjectID));
+  const names = await employeeNames(ids);
+  return elevated.recordset.map((row) => ({
+    subjectId: String(row.subjectID),
+    name: names[String(row.subjectID)] ?? String(row.subjectID),
+    accessLevel: row.accessLevel as StaffAccessLevel,
+  }));
+}
+
+async function staffAccessMap(ids: string[]) {
+  if (!ids.length) return {} as Record<string, StaffAccessLevel>;
+  const teamup = await getPool("teamup");
+  const request = teamup.request();
+  const parameters = ids.map((id, index) => {
+    request.input(`subjectID${index}`, sql.VarChar(50), id);
+    return `@subjectID${index}`;
+  });
+  const result = await request.query(`
+    SELECT subjectID, accessLevel
+    FROM dbo.StaffAccess
+    WHERE subjectID IN (${parameters.join(",")})
+  `);
+  return Object.fromEntries(result.recordset.map((row) => [
+    String(row.subjectID),
+    row.accessLevel as StaffAccessLevel,
+  ]));
+}
+
+async function employeeNames(ids: string[]) {
+  if (!ids.length) return {} as Record<string, string>;
+  const wm = await getPool("wm");
+  const request = wm.request();
+  const parameters = ids.map((id, index) => {
+    request.input(`employeeID${index}`, sql.VarChar(50), id);
+    return `@employeeID${index}`;
+  });
+  const result = await request.query(`
+    SELECT EmployeeID, FullName
+    FROM dbo.Employee
+    WHERE EmployeeID IN (${parameters.join(",")})
+  `);
+  return Object.fromEntries(result.recordset.map((row) => [
+    String(row.EmployeeID),
+    String(row.FullName || row.EmployeeID),
+  ]));
+}
+
+async function grantManager(actorSubjectId: string, subjectId: string) {
+  const targetId = staffSubjectId(subjectId);
+  await assertEmployee(targetId);
+  const teamup = await getPool("teamup");
+  await teamup.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("subjectID", sql.VarChar(50), targetId)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @accessLevel NVARCHAR(20);
+      SELECT @accessLevel = accessLevel
+      FROM dbo.StaffAccess WITH (UPDLOCK, HOLDLOCK)
+      WHERE subjectID = @subjectID;
+      IF @accessLevel = N'admin' THROW 51011, '不能變更 admin 權限', 1;
+      IF @accessLevel IS NULL
+      BEGIN
+        INSERT dbo.StaffAccess (subjectID, accessLevel, grantedBySubjectID)
+        VALUES (@subjectID, N'manager', @actorSubjectID);
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, afterJson)
+        VALUES (@actorSubjectID, N'manager_granted', N'staff', @subjectID,
+          (SELECT @subjectID AS subjectId, N'manager' AS accessLevel FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+      END;
+      COMMIT;
+    `);
+  const names = await employeeNames([targetId]);
+  return { subjectId: targetId, name: names[targetId] ?? targetId, accessLevel: "manager" as const };
+}
+
+async function revokeManager(actorSubjectId: string, subjectId: string) {
+  const targetId = staffSubjectId(subjectId);
+  const teamup = await getPool("teamup");
+  await teamup.request()
+    .input("actorSubjectID", sql.VarChar(50), actorSubjectId)
+    .input("subjectID", sql.VarChar(50), targetId)
+    .query(`
+      SET XACT_ABORT ON;
+      BEGIN TRAN;
+      DECLARE @accessLevel NVARCHAR(20);
+      SELECT @accessLevel = accessLevel
+      FROM dbo.StaffAccess WITH (UPDLOCK, HOLDLOCK)
+      WHERE subjectID = @subjectID;
+      IF @accessLevel = N'admin' THROW 51012, '不能收回 admin 權限', 1;
+      IF @accessLevel = N'manager'
+      BEGIN
+        DELETE dbo.StaffAccess WHERE subjectID = @subjectID AND accessLevel = N'manager';
+        INSERT dbo.StaffAdminAudit (actorSubjectID, action, targetType, targetID, beforeJson)
+        VALUES (@actorSubjectID, N'manager_revoked', N'staff', @subjectID,
+          (SELECT @subjectID AS subjectId, N'manager' AS accessLevel FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+      END;
+      COMMIT;
+    `);
+}
+
+function staffSubjectId(value: string) {
+  const subjectId = value.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{2,50}$/.test(subjectId)) {
+    throw new ApiError(400, "無效的 staff ID");
+  }
+  return subjectId;
 }
 
 async function staffEventAttendees(eventIdInput: string) {
@@ -2394,7 +2719,7 @@ async function requestPrincipal(req: IncomingMessage): Promise<AuthPrincipal> {
 
 function setCors(res: ServerResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
 }
 

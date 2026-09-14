@@ -1,10 +1,53 @@
 import assert from "node:assert/strict";
 import {
+  canExtendCampaign,
   campaignContainingDate,
   campaignHasEnded,
   campaignRangesOverlap,
+  parseCampaignCreateInput,
   parseCampaignInput,
+  parseCampaignUpdateInput,
 } from "./campaigns";
+
+assert.deepEqual(
+  parseCampaignCreateInput({
+    name: " 2026 Q4 ",
+    startsOn: "2026-10-01",
+    endsOn: "2026-12-31",
+  }),
+  { name: "2026 Q4", startsOn: "2026-10-01", endsOn: "2026-12-31" },
+);
+
+assert.deepEqual(
+  parseCampaignUpdateInput({
+    name: "2026 Q4 延長",
+    endsOn: "2027-01-15",
+  }),
+  { name: "2026 Q4 延長", endsOn: "2027-01-15" },
+);
+
+assert.throws(
+  () =>
+    parseCampaignUpdateInput({
+      name: "Q4",
+      startsOn: "2026-09-01",
+      endsOn: "2026-12-31",
+    }),
+  /不允許的欄位/,
+);
+
+assert.equal(
+  canExtendCampaign({ endsOn: "2026-12-31" }, "2027-01-15", "2026-09-14"),
+  true,
+);
+assert.equal(
+  canExtendCampaign({ endsOn: "2026-12-31" }, "2026-11-30", "2026-09-14"),
+  false,
+);
+assert.equal(
+  canExtendCampaign({ endsOn: "2026-08-31" }, "2026-12-31", "2026-09-14"),
+  false,
+);
 
 assert.deepEqual(
   parseCampaignInput({

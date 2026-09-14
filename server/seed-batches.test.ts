@@ -54,5 +54,9 @@ assert.match(
   /WHEN NOT MATCHED THEN\s+INSERT \(eventType, activityName, defaultPoint, sortOrder, defaultLocation, defaultLocationAddress\)\s+VALUES \(source\.eventType, source\.activityName, source\.defaultPoint, source\.sortOrder, source\.defaultLocation, source\.defaultLocationAddress\)/,
   "New Activity rows must receive their default location values.",
 );
+assert.match(sql, /CREATE TABLE dbo\.StaffAccess/);
+assert.match(sql, /CHECK \(accessLevel IN \(N'manager', N'admin'\)\)/);
+assert.match(sql, /CREATE TABLE dbo\.StaffAdminAudit/);
+assert.doesNotMatch(sql, /EP00821121/);
 
 console.log("seed batch contracts ok");
