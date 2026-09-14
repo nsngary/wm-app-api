@@ -1745,6 +1745,7 @@ async function rewards(customerId: string) {
     .request()
     .input("customerID", sql.NVarChar(50), customerId)
     .input("campaignID", sql.BigInt, campaign?.id ?? null)
+    .input("campaignName", sql.NVarChar(100), campaign?.name ?? null)
     .query(`
       WITH Progress AS (
         SELECT
@@ -1757,17 +1758,23 @@ async function rewards(customerId: string) {
       ),
       IssuedRewards AS (
         SELECT
-          rr.rewardRuleID, rr.levelNo, rr.rewardName, rr.rewardQty, rr.rewardUnit,
-          rr.pointCost, rr.rewardType, rr.issueMode, rr.sortOrder,
+          rr.rewardRuleID, rr.levelNo,
+          cr.gift AS rewardName, cr.rewardQty, cr.rewardUnit, cr.pointCost,
+          rr.rewardType, cr.issueMode, rr.sortOrder,
           p.expTotal, p.pointBalance, p.currentLevelNo,
           cr.customerRewardID, cr.giftCode, cr.status, cr.isGet,
-          cr.SalesID, cr.gotAt, cr.issuedAt
+          cr.SalesID, cr.gotAt, cr.issuedAt,
+          cr.campaignID AS campaignId, campaign.name AS campaignName
         FROM dbo.CustomerReward cr
         JOIN dbo.RewardRule rr ON rr.rewardRuleID = cr.rewardRuleID
+        LEFT JOIN dbo.Campaign campaign ON campaign.campaignID = cr.campaignID
         CROSS JOIN Progress p
         WHERE cr.CustomerID = @customerID
-          AND cr.campaignID = @campaignID
           AND cr.status <> N'voided'
+          AND (
+            cr.campaignID = @campaignID
+            OR (cr.status = N'issue' AND cr.isGet = 0)
+          )
       ),
       NormalRules AS (
         SELECT
@@ -1780,7 +1787,9 @@ async function rewards(customerId: string) {
           CAST(NULL AS BIT) AS isGet,
           CAST(NULL AS NVARCHAR(50)) AS SalesID,
           CAST(NULL AS DATETIMEOFFSET(0)) AS gotAt,
-          CAST(NULL AS DATETIMEOFFSET(0)) AS issuedAt
+          CAST(NULL AS DATETIMEOFFSET(0)) AS issuedAt,
+          CAST(@campaignID AS BIGINT) AS campaignId,
+          CAST(@campaignName AS NVARCHAR(100)) AS campaignName
         FROM dbo.RewardRule rr
         CROSS JOIN Progress p
         WHERE rr.isActive = 1
@@ -1808,6 +1817,8 @@ async function rewards(customerId: string) {
     rewards: result.recordset.map((row) => ({
       ...row,
       rewardRuleID: Number(row.rewardRuleID),
+      campaignId: row.campaignId == null ? null : String(row.campaignId),
+      campaignName: row.campaignName == null ? null : String(row.campaignName),
       status:
         row.status ||
         (row.currentLevelNo >= row.levelNo && row.pointBalance >= row.pointCost ? "available" : "locked"),
@@ -1969,9 +1980,12 @@ async function rewardClaimPreview(input: Record<string, unknown>) {
     .request()
     .input("giftCode", sql.NVarChar(100), giftCode)
     .query(`
-      SELECT TOP (1) CustomerID, gift, rewardQty, rewardUnit, giftCode, issuedAt, status, isGet
-      FROM dbo.CustomerReward
-      WHERE giftCode = @giftCode
+      SELECT TOP (1) reward.CustomerID, reward.gift, reward.rewardQty, reward.rewardUnit,
+        reward.giftCode, reward.issuedAt, reward.status, reward.isGet,
+        reward.campaignID, campaign.name AS campaignName
+      FROM dbo.CustomerReward reward
+      LEFT JOIN dbo.Campaign campaign ON campaign.campaignID = reward.campaignID
+      WHERE reward.giftCode = @giftCode
     `);
   const row = result.recordset[0];
   if (!row) throw new ApiError(400, "此兌換碼無效或已完成領取。");
@@ -2001,6 +2015,8 @@ export function rewardClaimPreviewDto(
     rewardName: String(row.gift),
     rewardQty: Number(row.rewardQty),
     rewardUnit: String(row.rewardUnit),
+    campaignId: row.campaignID == null ? null : String(row.campaignID),
+    campaignName: row.campaignName == null ? null : String(row.campaignName),
     giftCode: String(row.giftCode),
     issuedAt: date(row.issuedAt) || "",
   };

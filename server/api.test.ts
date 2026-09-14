@@ -267,8 +267,11 @@ assert.match(rewardsSource, /p\.campaignID = @campaignID/);
 assert.match(rewardsSource, /cr\.campaignID = @campaignID/);
 assert.match(
   rewardsSource,
-  /WHERE cr\.CustomerID = @customerID\s+AND cr\.campaignID = @campaignID\s+AND cr\.status <> N'voided'/,
+  /cr\.campaignID = @campaignID\s+OR \(cr\.status = N'issue' AND cr\.isGet = 0\)/,
+  "The rewards feed must retain pending rewards from past campaigns.",
 );
+assert.match(rewardsSource, /cr\.campaignID AS campaignId/);
+assert.match(rewardsSource, /campaign\.name AS campaignName/);
 
 const redeemSource = apiSource.slice(
   apiSource.indexOf("async function redeem"),
