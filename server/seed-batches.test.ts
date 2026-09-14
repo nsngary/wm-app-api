@@ -21,6 +21,12 @@ assert.match(sql, /UX_CustomerProgress_CustomerCampaign/);
 assert.match(sql, /IX_ExpPointLedger_CustomerCampaign/);
 assert.match(sql, /IX_CustomerReward_CustomerCampaign/);
 assert.match(freshSchema, /CREATE TABLE dbo\.Campaign/);
+assert.match(
+  freshSchema,
+  /CREATE TABLE dbo\.Campaign \([\s\S]*closedAt DATETIMEOFFSET\(0\) NULL/,
+);
+assert.match(freshSchema, /CREATE TABLE dbo\.StaffAccess/);
+assert.match(freshSchema, /CREATE TABLE dbo\.StaffAdminAudit/);
 assert.match(freshSchema, /UX_CustomerProgress_CustomerCampaign/);
 assert.match(freshSchema, /UX_ExpPointLedger_Source[\s\S]*campaignID/);
 assert.match(freshSchema, /UX_CustomerReward_Source[\s\S]*campaignID/);
@@ -54,5 +60,9 @@ assert.match(
   /WHEN NOT MATCHED THEN\s+INSERT \(eventType, activityName, defaultPoint, sortOrder, defaultLocation, defaultLocationAddress\)\s+VALUES \(source\.eventType, source\.activityName, source\.defaultPoint, source\.sortOrder, source\.defaultLocation, source\.defaultLocationAddress\)/,
   "New Activity rows must receive their default location values.",
 );
+assert.match(sql, /CREATE TABLE dbo\.StaffAccess/);
+assert.match(sql, /CHECK \(accessLevel IN \(N'manager', N'admin'\)\)/);
+assert.match(sql, /CREATE TABLE dbo\.StaffAdminAudit/);
+assert.doesNotMatch(sql, /EP00821121/);
 
 console.log("seed batch contracts ok");
