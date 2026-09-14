@@ -39,8 +39,12 @@ IF OBJECT_ID(N'dbo.Campaign', N'U') IS NULL
     isOpen BIT NOT NULL CONSTRAINT DF_Campaign_isOpen DEFAULT (0),
     createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Campaign_createdAt DEFAULT (SYSDATETIMEOFFSET()),
     updatedAt DATETIMEOFFSET(0) NULL,
+    closedAt DATETIMEOFFSET(0) NULL,
     CONSTRAINT CK_Campaign_DateRange CHECK (endsOn >= startsOn)
   );
+
+IF COL_LENGTH(N'dbo.Campaign', N'closedAt') IS NULL
+  ALTER TABLE dbo.Campaign ADD closedAt DATETIMEOFFSET(0) NULL;
 
 IF NOT EXISTS (
   SELECT 1
