@@ -21,6 +21,12 @@ assert.match(sql, /UX_CustomerProgress_CustomerCampaign/);
 assert.match(sql, /IX_ExpPointLedger_CustomerCampaign/);
 assert.match(sql, /IX_CustomerReward_CustomerCampaign/);
 assert.match(freshSchema, /CREATE TABLE dbo\.Campaign/);
+assert.match(
+  freshSchema,
+  /CREATE TABLE dbo\.Campaign \([\s\S]*closedAt DATETIMEOFFSET\(0\) NULL/,
+);
+assert.match(freshSchema, /CREATE TABLE dbo\.StaffAccess/);
+assert.match(freshSchema, /CREATE TABLE dbo\.StaffAdminAudit/);
 assert.match(freshSchema, /UX_CustomerProgress_CustomerCampaign/);
 assert.match(freshSchema, /UX_ExpPointLedger_Source[\s\S]*campaignID/);
 assert.match(freshSchema, /UX_CustomerReward_Source[\s\S]*campaignID/);

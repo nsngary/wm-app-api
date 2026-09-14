@@ -4,6 +4,34 @@ GO
 USE TeamUp;
 GO
 
+CREATE TABLE dbo.StaffAccess (
+  subjectID VARCHAR(50) NOT NULL CONSTRAINT PK_StaffAccess PRIMARY KEY,
+  accessLevel NVARCHAR(20) NOT NULL,
+  grantedBySubjectID VARCHAR(50) NULL,
+  grantedAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_StaffAccess_grantedAt DEFAULT (SYSDATETIMEOFFSET()),
+  updatedAt DATETIMEOFFSET(0) NULL,
+  CONSTRAINT CK_StaffAccess_accessLevel CHECK (accessLevel IN (N'manager', N'admin'))
+);
+
+CREATE TABLE dbo.StaffAdminAudit (
+  auditID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_StaffAdminAudit PRIMARY KEY,
+  actorSubjectID VARCHAR(50) NOT NULL,
+  action NVARCHAR(40) NOT NULL,
+  targetType NVARCHAR(20) NOT NULL,
+  targetID VARCHAR(50) NOT NULL,
+  beforeJson NVARCHAR(MAX) NULL,
+  afterJson NVARCHAR(MAX) NULL,
+  createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_StaffAdminAudit_createdAt DEFAULT (SYSDATETIMEOFFSET()),
+  CONSTRAINT CK_StaffAdminAudit_action CHECK (action IN (
+    N'campaign_created', N'campaign_renamed', N'campaign_extended',
+    N'campaign_shortened', N'campaign_closed', N'campaign_switched',
+    N'manager_granted', N'manager_revoked'
+  )),
+  CONSTRAINT CK_StaffAdminAudit_targetType CHECK (targetType IN (N'campaign', N'staff')),
+  CONSTRAINT CK_StaffAdminAudit_beforeJson CHECK (beforeJson IS NULL OR ISJSON(beforeJson) = 1),
+  CONSTRAINT CK_StaffAdminAudit_afterJson CHECK (afterJson IS NULL OR ISJSON(afterJson) = 1)
+);
+
 CREATE TABLE dbo.Campaign (
   campaignID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Campaign PRIMARY KEY,
   name NVARCHAR(100) NOT NULL,
@@ -12,6 +40,7 @@ CREATE TABLE dbo.Campaign (
   isOpen BIT NOT NULL CONSTRAINT DF_Campaign_isOpen DEFAULT (0),
   createdAt DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Campaign_createdAt DEFAULT (SYSDATETIMEOFFSET()),
   updatedAt DATETIMEOFFSET(0) NULL,
+  closedAt DATETIMEOFFSET(0) NULL,
   CONSTRAINT CK_Campaign_DateRange CHECK (endsOn >= startsOn)
 );
 

@@ -108,6 +108,10 @@ assert.match(apiSource, /req\.method === "GET" && path === "\/api\/staff-access"
 assert.match(apiSource, /accessLevel = N'admin'[\s\S]*throw new ApiError\(400/);
 assert.match(apiSource, /N'manager_granted'/);
 assert.match(apiSource, /N'manager_revoked'/);
+assert.match(
+  apiSource,
+  /companionDirectNewcomerSourceID\(context\.eventType, companionCustomerId\)/,
+);
 
 const dealerEventsRoute = apiSource.match(
   /if \(req\.method === "GET" && path === "\/api\/me\/events"\) \{([\s\S]*?)\n    \}/,
