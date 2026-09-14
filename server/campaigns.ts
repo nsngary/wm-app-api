@@ -93,6 +93,7 @@ export type Campaign = CampaignRange & {
   id: string;
   name: string;
   isOpen: boolean;
+  closedAt?: string | null;
 };
 
 export function campaignHasEnded(

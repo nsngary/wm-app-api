@@ -465,7 +465,7 @@ function boundedInputString(value: unknown, name: string, maxLength: number) {
 async function campaigns() {
   const pool = await getPool("teamup");
   const result = await pool.request().query(`
-    SELECT campaignID, name, startsOn, endsOn, isOpen
+    SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt
     FROM dbo.Campaign
     ORDER BY startsOn DESC, campaignID DESC
   `);
@@ -479,6 +479,7 @@ function campaignDto(row: Record<string, any>): Campaign {
     startsOn: dateOnly(row.startsOn),
     endsOn: dateOnly(row.endsOn),
     isOpen: Boolean(row.isOpen),
+    closedAt: row.closedAt ? date(row.closedAt) : null,
   };
 }
 
@@ -503,10 +504,11 @@ async function createCampaign(actorSubjectId: string, input: Record<string, unkn
       ) THROW 51003, '日期與現存賽季重疊', 1;
 
       DECLARE @created TABLE (
-        campaignID BIGINT, name NVARCHAR(100), startsOn DATE, endsOn DATE, isOpen BIT
+        campaignID BIGINT, name NVARCHAR(100), startsOn DATE, endsOn DATE, isOpen BIT,
+        closedAt DATETIMEOFFSET(0)
       );
       INSERT dbo.Campaign (name, startsOn, endsOn, isOpen)
-      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen
+      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen, inserted.closedAt
         INTO @created
       VALUES (@name, @startsOn, @endsOn, 0);
 
@@ -517,7 +519,7 @@ async function createCampaign(actorSubjectId: string, input: Record<string, unkn
         (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
       FROM @created;
 
-      SELECT campaignID, name, startsOn, endsOn, isOpen FROM @created;
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM @created;
       COMMIT;
     `);
   return campaignDto(result.recordset[0]);
@@ -571,7 +573,7 @@ async function updateCampaign(
 
       UPDATE dbo.Campaign
       SET name = @name, endsOn = @endsOn, updatedAt = SYSDATETIMEOFFSET()
-      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen
+      OUTPUT inserted.campaignID, inserted.name, inserted.startsOn, inserted.endsOn, inserted.isOpen, inserted.closedAt
       WHERE campaignID = @campaignID;
 
       IF @oldName <> @name
@@ -617,7 +619,7 @@ async function closeCampaign(actorSubjectId: string, campaignID: string) {
       SELECT @actorSubjectID, N'campaign_closed', N'campaign', CONVERT(VARCHAR(50), @campaignID), @beforeJson,
         (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
           WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
-      SELECT campaignID, name, startsOn, endsOn, isOpen FROM dbo.Campaign WHERE campaignID = @campaignID;
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM dbo.Campaign WHERE campaignID = @campaignID;
       COMMIT;
     `);
   return campaignDto(result.recordset[0]);
@@ -662,7 +664,7 @@ async function activateCampaign(actorSubjectId: string, campaignID: string) {
       SELECT @actorSubjectID, N'campaign_switched', N'campaign', CONVERT(VARCHAR(50), @campaignID), @targetBefore,
         (SELECT campaignID AS id, name, startsOn, endsOn, isOpen FROM dbo.Campaign
           WHERE campaignID = @campaignID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
-      SELECT campaignID, name, startsOn, endsOn, isOpen FROM dbo.Campaign WHERE campaignID = @campaignID;
+      SELECT campaignID, name, startsOn, endsOn, isOpen, closedAt FROM dbo.Campaign WHERE campaignID = @campaignID;
       COMMIT;
     `);
   return campaignDto(result.recordset[0]);

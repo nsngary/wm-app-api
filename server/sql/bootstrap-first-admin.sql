@@ -2,18 +2,29 @@ SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
 DECLARE @subjectID VARCHAR(50) = 'EP00821121';
+DECLARE @wmDatabase SYSNAME = N'WM';
+DECLARE @employeeExists BIT = 0;
+DECLARE @employeeSql NVARCHAR(MAX);
+
+IF DB_ID(@wmDatabase) IS NULL
+  THROW 51000, 'WM database not found. Set @wmDatabase before running.', 1;
+
+SET @employeeSql = N'
+  IF EXISTS (
+    SELECT 1 FROM ' + QUOTENAME(@wmDatabase) + N'.dbo.Employee
+    WHERE EmployeeID = @subjectID
+  ) SET @employeeExists = 1;';
+
+EXEC sys.sp_executesql
+  @employeeSql,
+  N'@subjectID VARCHAR(50), @employeeExists BIT OUTPUT',
+  @subjectID,
+  @employeeExists OUTPUT;
+
+IF @employeeExists = 0
+  THROW 51000, 'Bootstrap admin is not a valid employee.', 1;
 
 BEGIN TRANSACTION;
-
-IF NOT EXISTS (
-  SELECT 1
-  FROM dbo.Employee
-  WHERE EmployeeID = @subjectID
-)
-BEGIN
-  ROLLBACK TRANSACTION;
-  THROW 51000, 'Bootstrap admin is not a valid employee.', 1;
-END;
 
 IF EXISTS (
   SELECT 1

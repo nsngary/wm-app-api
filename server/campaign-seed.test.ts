@@ -18,6 +18,9 @@ assert.match(
   bootstrap,
   /DECLARE @subjectID VARCHAR\(50\) = 'EP00821121'/,
 );
+assert.match(bootstrap, /DECLARE @wmDatabase SYSNAME = N'WM'/);
+assert.match(bootstrap, /QUOTENAME\(@wmDatabase\)/);
+assert.doesNotMatch(bootstrap, /FROM dbo\.Employee/);
 assert.match(
   bootstrap,
   /IF EXISTS[\s\S]*accessLevel = N'admin'[\s\S]*THROW 51001/,

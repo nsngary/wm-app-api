@@ -87,6 +87,7 @@ assert.match(apiSource, /type StaffAccessLevel = "staff" \| "manager" \| "admin"
 assert.match(apiSource, /await requireStaffAccess\(principal, "manager"\)/);
 assert.match(apiSource, /await requireStaffAccess\(principal, "admin"\)/);
 assert.match(apiSource, /staffAccessLevel: await staffAccessLevel\(principal\.subjectId\)/);
+assert.match(apiSource, /closedAt: row\.closedAt/);
 assert.match(apiSource, /req\.method === "POST" && campaignCloseRoute/);
 assert.match(apiSource, /req\.method === "POST" && campaignActivateRoute/);
 assert.doesNotMatch(apiSource, /input\("isOpen", sql\.Bit, campaign\.isOpen\)/);
