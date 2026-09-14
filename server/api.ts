@@ -256,6 +256,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         customerId: principal.subjectId,
       }));
     }
+    if (req.method === "POST" && path === "/api/rewards/claim/preview") {
+      requireRole(principal, "staff");
+      return send(res, 200, await rewardClaimPreview({
+        ...(await body(req)),
+        employeeId: principal.subjectId,
+      }));
+    }
     if (req.method === "POST" && path === "/api/rewards/claim") {
       requireRole(principal, "staff");
       return send(res, 200, await claim({
@@ -1950,6 +1957,52 @@ async function claim(input: Record<string, unknown>) {
       ...reward,
       SalesID: reward.SalesID === DEV_CLAIM_SALES_ID ? null : reward.SalesID,
     },
+  };
+}
+
+async function rewardClaimPreview(input: Record<string, unknown>) {
+  const giftCode = mustString(input.giftCode);
+  await assertEmployee(mustString(input.employeeId));
+
+  const pool = await getPool("teamup");
+  const result = await pool
+    .request()
+    .input("giftCode", sql.NVarChar(100), giftCode)
+    .query(`
+      SELECT TOP (1) CustomerID, gift, rewardQty, rewardUnit, giftCode, issuedAt, status, isGet
+      FROM dbo.CustomerReward
+      WHERE giftCode = @giftCode
+    `);
+  const row = result.recordset[0];
+  if (!row) throw new ApiError(400, "此兌換碼無效或已完成領取。");
+
+  const preview = rewardClaimPreviewDto(row);
+  const customerId = preview.customerId;
+  const names = await customerNames([customerId]);
+  return {
+    reward: {
+      ...preview,
+      customerName: names[customerId] || customerId,
+    },
+  };
+}
+
+export function rewardClaimPreviewDto(
+  row: Record<string, unknown>,
+  customerName?: string,
+) {
+  if (row.status !== "issue" || Boolean(row.isGet)) {
+    throw new ApiError(400, "此兌換碼無效或已完成領取。");
+  }
+  const customerId = String(row.CustomerID);
+  return {
+    customerId,
+    customerName: customerName || customerId,
+    rewardName: String(row.gift),
+    rewardQty: Number(row.rewardQty),
+    rewardUnit: String(row.rewardUnit),
+    giftCode: String(row.giftCode),
+    issuedAt: date(row.issuedAt) || "",
   };
 }
 
