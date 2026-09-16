@@ -75,8 +75,8 @@ async function main() {
     assert.equal(REFRESH_TOKEN_TTL_MS, 30 * 24 * 60 * 60 * 1000);
     assert.equal(SESSION_ABSOLUTE_TTL_MS, 90 * 24 * 60 * 60 * 1000);
 
-    assert.throws(() => validateNewPassword("too-short"), /至少 15 個字元/);
-    assert.doesNotThrow(() => validateNewPassword("123456789012345"));
+    assert.throws(() => validateNewPassword("1234567"), /至少 8 個字元/);
+    assert.doesNotThrow(() => validateNewPassword("12345678"));
     assert.doesNotThrow(() => validateNewPassword("x".repeat(64)));
 
     // reset.ts 執行既有資料重置前，必須先確保 Auth Schema 存在。

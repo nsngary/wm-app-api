@@ -37,7 +37,7 @@ const SCRYPT_OPTIONS: ScryptOptions = {
  * 防止攻擊者傳入異常巨大的密碼字串，
  * 消耗 API Server 過多記憶體與 CPU。
  *
- * 這不是產品密碼長度規則；新密碼的 15 字元規則
+ * 這不是產品密碼長度規則；新密碼的 8 字元規則
  * 會在帳號啟用與重設密碼流程中檢查。
  */
 const MAX_PASSWORD_BYTES = 1024;
@@ -184,8 +184,9 @@ export async function authenticatePassword(
 /** 新密碼規則只要求長度，不強迫無意義的大小寫或符號組合。 */
 export function validateNewPassword(password: string) {
   assertPasswordInput(password);
-  if (Array.from(password).length < 15) {
-    throw new Error("密碼至少 15 個字元");
+
+  if (Array.from(password).length < 8) {
+    throw new Error("密碼至少 8 個字元");
   }
 }
 
@@ -726,13 +727,13 @@ async function migrateLegacyAccount(
   }
 
   /*
-   * 新密碼規則要求至少 15 個字元。
+   * 新密碼規則要求至少 8 個字元。
    * 舊 WM 密碼仍可先遷移，但登入後應要求使用者更新。
    */
 
 // 先不要求首次登入強制修改密碼
 //   const mustChangePassword =
-//     Array.from(password).length < 15;
+//     Array.from(password).length < 8;
 
   await createMigratedAuthAccount(
     legacyIdentity.role,
