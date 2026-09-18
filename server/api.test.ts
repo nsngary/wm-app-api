@@ -69,6 +69,16 @@ assert.match(apiSource, /employeeId: principal\.subjectId/);
 assert.match(apiSource, /requireRole\(principal, "dealer"\)/);
 assert.match(apiSource, /requireRole\(principal, "staff"\)/);
 
+const cmsAuthRoute = apiSource.match(
+  /if \(req\.method === "POST" && path === "\/api\/internal\/app-cms\/verify-employee"\) \{([\s\S]*?)\n    \}/,
+)?.[1];
+assert.ok(cmsAuthRoute, "app-cms employee verification route must exist");
+assert.match(cmsAuthRoute, /APP_CMS_BFF_TOKEN/);
+assert.match(cmsAuthRoute, /matchesServiceToken/);
+assert.match(cmsAuthRoute, /authenticatePassword/);
+assert.match(cmsAuthRoute, /user\.role !== "staff"/);
+assert.doesNotMatch(cmsAuthRoute, /createSession/);
+
 const campaignsRoute = apiSource.match(
   /if \(req\.method === "GET" && path === "\/api\/campaigns"\) \{([\s\S]*?)\n    \}/,
 )?.[1];

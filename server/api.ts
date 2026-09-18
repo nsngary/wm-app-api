@@ -9,6 +9,7 @@ import {
   deleteAccount,
   getSessionUser,
   logoutSession,
+  matchesServiceToken,
   refreshSession,
   resetPassword,
   type AuthPrincipal,
@@ -75,6 +76,18 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
     const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
+
+    if (req.method === "POST" && path === "/api/internal/app-cms/verify-employee") {
+      const expectedToken = process.env.APP_CMS_BFF_TOKEN;
+      if (!expectedToken) throw new ApiError(503, "app-cms authentication is not configured");
+      if (!matchesServiceToken(String(req.headers["x-app-cms-token"] || ""), expectedToken)) {
+        throw new AuthHttpError(401, "Invalid service token");
+      }
+      const input = await body(req);
+      const user = await authenticatePassword(mustString(input.accountId), mustString(input.password));
+      if (user.role !== "staff") throw new AuthHttpError(403, "Employee account required");
+      return send(res, 200, { user });
+    }
 
     if (req.method === "POST" && path === "/api/auth/login") {
       const input = await body(req);
