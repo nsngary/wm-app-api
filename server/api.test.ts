@@ -75,8 +75,8 @@ const cmsAuthRoute = apiSource.match(
 assert.ok(cmsAuthRoute, "app-cms employee verification route must exist");
 assert.match(cmsAuthRoute, /APP_CMS_BFF_TOKEN/);
 assert.match(cmsAuthRoute, /matchesServiceToken/);
-assert.match(cmsAuthRoute, /authenticatePassword/);
-assert.match(cmsAuthRoute, /user\.role !== "staff"/);
+assert.match(cmsAuthRoute, /authenticateWmEmployeePassword/);
+assert.doesNotMatch(cmsAuthRoute, /authenticatePassword/);
 assert.doesNotMatch(cmsAuthRoute, /createSession/);
 
 const campaignsRoute = apiSource.match(

@@ -4,6 +4,7 @@ import {
   AuthHttpError,
   authenticateAccessToken,
   authenticatePassword,
+  authenticateWmEmployeePassword,
   changePassword,
   createSession,
   deleteAccount,
@@ -84,8 +85,10 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         throw new AuthHttpError(401, "Invalid service token");
       }
       const input = await body(req);
-      const user = await authenticatePassword(mustString(input.accountId), mustString(input.password));
-      if (user.role !== "staff") throw new AuthHttpError(403, "Employee account required");
+      const user = await authenticateWmEmployeePassword(
+        mustString(input.accountId),
+        mustString(input.password),
+      );
       return send(res, 200, { user });
     }
 
