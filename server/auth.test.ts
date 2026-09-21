@@ -4,6 +4,7 @@ import {
     generateToken,
     hashPassword,
     hashToken,
+    matchesServiceToken,
     matchesLegacyPassword,
     normalizeLoginAccountId,
     ACCESS_TOKEN_TTL_MS,
@@ -17,6 +18,9 @@ async function main() {
     assert.equal(normalizeLoginAccountId("821121"), "EP00821121");
     assert.equal(normalizeLoginAccountId(" ep00821121 "), "EP00821121");
     assert.equal(normalizeLoginAccountId(" tw2626369 "), "TW2626369");
+    assert.equal(matchesServiceToken("shared-secret", "shared-secret"), true);
+    assert.equal(matchesServiceToken("wrong-secret", "shared-secret"), false);
+    assert.equal(matchesServiceToken(undefined, "shared-secret"), false);
     
     const authSql = readFileSync("server/sql/auth.sql", "utf8");
     const authSource = readFileSync("server/auth.ts", "utf8");

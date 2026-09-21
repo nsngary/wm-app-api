@@ -144,6 +144,16 @@ export function matchesLegacyPassword(
     return timingSafeEqual(inputDigest, wmDigest);
 }
 
+export function matchesServiceToken(
+  provided: string | undefined,
+  expected: string | undefined,
+): boolean {
+  if (!provided || !expected) return false;
+  const providedDigest = createHash("sha256").update(provided).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
+
 // -------------------------------------------------------------------------------------- //
 // -------------------------------------------------------------------------------------- //
 // -------------------------------------------------------------------------------------- //
@@ -179,6 +189,39 @@ export async function authenticatePassword(
   }
 
   return migrateLegacyAccount(accountId, password);
+}
+
+/** app-cms 每次都以 WM Employee.Password 驗證，不使用 TeamUp AuthAccount。 */
+export async function authenticateWmEmployeePassword(
+  rawAccountId: string,
+  password: string,
+): Promise<AuthenticatedIdentity> {
+  const accountId = normalizeLoginAccountId(rawAccountId);
+
+  try {
+    if (!accountId) throw new Error("Invalid account");
+    assertPasswordInput(password);
+  } catch {
+    throw invalidLogin();
+  }
+
+  const throttle = await loadLegacyLoginThrottle(accountId);
+  if (throttle?.lockUntil && throttle.lockUntil.getTime() > Date.now()) {
+    throw invalidLogin();
+  }
+
+  const identity = await loadLegacyWmIdentity(accountId);
+  if (
+    identity?.role !== "staff" ||
+    !matchesLegacyPassword(password, identity.legacyPassword)
+  ) {
+    if (identity?.role === "staff") await recordLegacyFailedLogin(accountId);
+    throw invalidLogin();
+  }
+
+  await clearLegacyLoginThrottle(accountId);
+  const { legacyPassword: _legacyPassword, ...employee } = identity;
+  return { ...employee, mustChangePassword: false };
 }
 
 /** 新密碼規則只要求長度，不強迫無意義的大小寫或符號組合。 */
