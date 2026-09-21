@@ -41,6 +41,10 @@ import {
   taipeiDateKey,
 } from "./dealer-event-status";
 import { staticMapUrl } from "./static-map";
+import {
+  NotificationBridgeError,
+  notificationDeviceForPrincipal,
+} from "./app-notification";
 
 type Role = "dealer" | "staff";
 type StaffAccessLevel = "staff" | "manager" | "admin";
@@ -151,6 +155,15 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     // if (principal.mustChangePassword) {
     //   throw new AuthHttpError(403, "請先更新密碼");
     // }
+
+    if (req.method === "PUT" && path === "/api/me/notification-device") {
+      await notificationDeviceForPrincipal(principal, "PUT", await body(req));
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === "DELETE" && path === "/api/me/notification-device") {
+      await notificationDeviceForPrincipal(principal, "DELETE", await body(req));
+      return send(res, 200, { ok: true });
+    }
 
     if (req.method === "GET" && path === "/api/me/favorite-locations") {
       requireRole(principal, "staff");
@@ -359,7 +372,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         ? 404
         : businessRuleError
           ? 400
-      : error instanceof ApiError || error instanceof AuthHttpError
+      : error instanceof ApiError || error instanceof AuthHttpError || error instanceof NotificationBridgeError
         ? error.status
         : 500;
     const message = duplicateAttendance
