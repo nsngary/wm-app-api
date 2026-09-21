@@ -45,6 +45,7 @@ import {
   NotificationBridgeError,
   notificationDeviceForPrincipal,
 } from "./app-notification";
+import { redemptionNotificationAudience } from "./notification-audience";
 
 type Role = "dealer" | "staff";
 type StaffAccessLevel = "staff" | "manager" | "admin";
@@ -94,6 +95,19 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         mustString(input.password),
       );
       return send(res, 200, { user });
+    }
+
+    if (
+      req.method === "GET" &&
+      path === "/api/internal/app-cms/notification-audiences/dealer-reward-redemption"
+    ) {
+      requireNotificationServiceToken(req);
+      const audience = await redemptionNotificationAudience();
+      return send(res, 200, audience ?? {
+        campaignID: null,
+        campaignEndDate: null,
+        dealerIDs: [],
+      });
     }
 
     if (req.method === "POST" && path === "/api/auth/login") {
@@ -2715,6 +2729,14 @@ function mustString(value: unknown) {
 
 function requireRole(principal: AuthPrincipal, role: Role) {
   if (principal.role !== role) throw new AuthHttpError(403, "沒有操作權限");
+}
+
+function requireNotificationServiceToken(req: IncomingMessage) {
+  const expectedToken = process.env.APP_NOTIFICATION_SERVICE_TOKEN;
+  if (!expectedToken) throw new ApiError(503, "Notification service is not configured");
+  if (!matchesServiceToken(String(req.headers["x-app-notification-token"] || ""), expectedToken)) {
+    throw new AuthHttpError(401, "Invalid service token");
+  }
 }
 
 function optionalString(value: unknown) {
