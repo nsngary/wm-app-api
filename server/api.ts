@@ -314,7 +314,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       });
     }
     if (req.method === "POST" && path === "/api/staff-qr") {
-      await requireStaffAccess(principal, "manager");
+      await requireRole(principal, "staff");
       return send(res, 200, await staffQr({
         ...(await body(req)),
         employeeId: principal.subjectId,

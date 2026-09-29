@@ -7,7 +7,7 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 for (const [method, path, next, allowed] of [
   ["POST", "/api/events", 'if (req.method === "POST" && path === "/api/staff-qr")', ["manager", "admin"]],
-  ["POST", "/api/staff-qr", 'if (req.method === "POST" && path === "/api/checkins")', ["manager", "admin"]],
+  ["POST", "/api/staff-qr", 'if (req.method === "POST" && path === "/api/checkins")', ["staff", "manager", "admin"]],
   ["DELETE", "/api/events/42", 'if (req.method === "POST" && path === "/api/events")', ["admin"]],
 ] as const) {
   test(`${method} ${path} enforces event access`, async () => {
