@@ -81,6 +81,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const staffManagerRoute = path.match(/^\/api\/staff-access\/([^/]+)\/manager$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
+    const eventDeleteRoute = path.match(/^\/api\/events\/(\d+)$/);
     const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
 
     if (req.method === "POST" && path === "/api/internal/app-cms/verify-employee") {
@@ -297,8 +298,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       );
       return send(res, 200, { ok: true });
     }
+    if (req.method === "DELETE" && eventDeleteRoute) {
+      await requireStaffAccess(principal, "admin");
+      await deleteEventSession(eventDeleteRoute[1]);
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "POST" && path === "/api/events") {
-      requireRole(principal, "staff");
+      await requireStaffAccess(principal, "manager");
       return send(res, 200, {
         event: await createEventSession({
           ...(await body(req)),
@@ -308,7 +314,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       });
     }
     if (req.method === "POST" && path === "/api/staff-qr") {
-      requireRole(principal, "staff");
+      await requireStaffAccess(principal, "manager");
       return send(res, 200, await staffQr({
         ...(await body(req)),
         employeeId: principal.subjectId,
@@ -1377,6 +1383,18 @@ async function dealerSeasonHistory(customerId: string, campaignId: string) {
       issuedAt: date(row.issuedAt),
     })),
   };
+}
+
+async function deleteEventSession(eventId: string) {
+  const pool = await getPool("teamup");
+  const result = await pool.request()
+    .input("eventID", sql.BigInt, eventId)
+    .query(`
+      UPDATE dbo.[Event] SET isActive = 0
+      OUTPUT inserted.eventID
+      WHERE eventID = @eventID AND isActive = 1;
+    `);
+  if (!result.recordset.length) throw new ApiError(404, "活動不存在或已刪除");
 }
 
 async function createEventSession(input: Record<string, unknown>) {

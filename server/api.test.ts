@@ -429,6 +429,7 @@ const eliteSession = parseEventSessionInput(
     description: "多日活動",
   },
   activityCatalog,
+  Date.parse("2026-08-01T00:00:00+08:00"),
 );
 
 assert.equal(eliteSession.eventName, "菁英研習營");
@@ -447,8 +448,19 @@ assert.throws(
         location: " ",
       },
       activityCatalog,
+      Date.parse("2026-08-01T00:00:00+08:00"),
     ),
   /Missing location/,
 );
+
+const eventNow = Date.parse("2026-09-24T10:30:00+08:00");
+const eventInput = { role: "staff", employeeId: "EP00821121", eventType: "sha", location: "中區" };
+for (const startAt of ["2026-09-23T12:00:00+08:00", "2026-09-24T09:00:00+08:00", "2026-09-24T10:30:00+08:00"]) {
+  assert.throws(() => parseEventSessionInput({ ...eventInput, startAt }, activityCatalog, eventNow), /開始時間/);
+}
+assert.doesNotThrow(() => parseEventSessionInput({ ...eventInput, startAt: "2026-09-24T10:45:00+08:00" }, activityCatalog, eventNow));
+assert.doesNotThrow(() => parseEventSessionInput({ ...eventInput, startAt: "2026-09-25T09:00:00+08:00" }, activityCatalog, eventNow));
+assert.throws(() => parseEventSessionInput({ ...eventInput, startAt: "invalid" }, activityCatalog, eventNow), /Invalid startAt/);
+assert.throws(() => parseEventSessionInput({ ...eventInput, startAt: "2026-09-24T10:45:00+08:00" }, activityCatalog, eventNow + 3_600_000), /開始時間/);
 
 console.log("api contracts ok");

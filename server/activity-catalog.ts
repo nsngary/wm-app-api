@@ -41,6 +41,7 @@ export function defaultLocationForBusinessUnit(value: unknown) {
 export function parseEventSessionInput(
   input: Record<string, unknown>,
   catalog: ActivityDefinition[],
+  now = Date.now(),
 ): EventSessionInput {
   if (input.role !== "staff") throw new Error("Staff role required");
 
@@ -50,6 +51,7 @@ export function parseEventSessionInput(
   if (!activity) throw new Error("Unknown activity");
 
   const startAt = isoDate(input.startAt, "startAt");
+  if (Date.parse(startAt) <= now) throw new Error("開始時間必須晚於目前時間。");
   const endAt = optionalIsoDate(input.endAt, "endAt");
   if (endAt && Date.parse(endAt) < Date.parse(startAt)) throw new Error("endAt must be after startAt");
 
