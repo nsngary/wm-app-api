@@ -41,6 +41,11 @@ import {
   taipeiDateKey,
 } from "./dealer-event-status";
 import { staticMapUrl } from "./static-map";
+import {
+  NotificationBridgeError,
+  notificationDeviceForPrincipal,
+} from "./app-notification";
+import { redemptionNotificationAudience } from "./notification-audience";
 
 type Role = "dealer" | "staff";
 type StaffAccessLevel = "staff" | "manager" | "admin";
@@ -76,6 +81,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     const staffManagerRoute = path.match(/^\/api\/staff-access\/([^/]+)\/manager$/);
     const dealerHistoryDetail = path.match(/^\/api\/me\/history\/([^/]+)$/);
     const favoriteLocationDelete = path.match(/^\/api\/me\/favorite-locations\/(\d+)$/);
+    const eventDeleteRoute = path.match(/^\/api\/events\/(\d+)$/);
     const staffEventAttendeesRoute = path.match(/^\/api\/events\/(\d+)\/attendees$/);
 
     if (req.method === "POST" && path === "/api/internal/app-cms/verify-employee") {
@@ -90,6 +96,19 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         mustString(input.password),
       );
       return send(res, 200, { user });
+    }
+
+    if (
+      req.method === "GET" &&
+      path === "/api/internal/app-cms/notification-audiences/dealer-reward-redemption"
+    ) {
+      requireNotificationServiceToken(req);
+      const audience = await redemptionNotificationAudience();
+      return send(res, 200, audience ?? {
+        campaignID: null,
+        campaignEndDate: null,
+        dealerIDs: [],
+      });
     }
 
     if (req.method === "POST" && path === "/api/auth/login") {
@@ -151,6 +170,15 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
     // if (principal.mustChangePassword) {
     //   throw new AuthHttpError(403, "請先更新密碼");
     // }
+
+    if (req.method === "PUT" && path === "/api/me/notification-device") {
+      await notificationDeviceForPrincipal(principal, "PUT", await body(req));
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === "DELETE" && path === "/api/me/notification-device") {
+      await notificationDeviceForPrincipal(principal, "DELETE", await body(req));
+      return send(res, 200, { ok: true });
+    }
 
     if (req.method === "GET" && path === "/api/me/favorite-locations") {
       requireRole(principal, "staff");
@@ -270,8 +298,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       );
       return send(res, 200, { ok: true });
     }
+    if (req.method === "DELETE" && eventDeleteRoute) {
+      await requireStaffAccess(principal, "admin");
+      await deleteEventSession(eventDeleteRoute[1]);
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "POST" && path === "/api/events") {
-      requireRole(principal, "staff");
+      await requireStaffAccess(principal, "manager");
       return send(res, 200, {
         event: await createEventSession({
           ...(await body(req)),
@@ -281,7 +314,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       });
     }
     if (req.method === "POST" && path === "/api/staff-qr") {
-      requireRole(principal, "staff");
+      await requireRole(principal, "staff");
       return send(res, 200, await staffQr({
         ...(await body(req)),
         employeeId: principal.subjectId,
@@ -359,7 +392,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         ? 404
         : businessRuleError
           ? 400
-      : error instanceof ApiError || error instanceof AuthHttpError
+      : error instanceof ApiError || error instanceof AuthHttpError || error instanceof NotificationBridgeError
         ? error.status
         : 500;
     const message = duplicateAttendance
@@ -1350,6 +1383,18 @@ async function dealerSeasonHistory(customerId: string, campaignId: string) {
       issuedAt: date(row.issuedAt),
     })),
   };
+}
+
+async function deleteEventSession(eventId: string) {
+  const pool = await getPool("teamup");
+  const result = await pool.request()
+    .input("eventID", sql.BigInt, eventId)
+    .query(`
+      UPDATE dbo.[Event] SET isActive = 0
+      OUTPUT inserted.eventID
+      WHERE eventID = @eventID AND isActive = 1;
+    `);
+  if (!result.recordset.length) throw new ApiError(404, "活動不存在或已刪除");
 }
 
 async function createEventSession(input: Record<string, unknown>) {
@@ -2702,6 +2747,14 @@ function mustString(value: unknown) {
 
 function requireRole(principal: AuthPrincipal, role: Role) {
   if (principal.role !== role) throw new AuthHttpError(403, "沒有操作權限");
+}
+
+function requireNotificationServiceToken(req: IncomingMessage) {
+  const expectedToken = process.env.APP_NOTIFICATION_SERVICE_TOKEN;
+  if (!expectedToken) throw new ApiError(503, "Notification service is not configured");
+  if (!matchesServiceToken(String(req.headers["x-app-notification-token"] || ""), expectedToken)) {
+    throw new AuthHttpError(401, "Invalid service token");
+  }
 }
 
 function optionalString(value: unknown) {
